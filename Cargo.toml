@@ -1,0 +1,9 @@
+[package]
+name = "rradio"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+num-complex = "0.4.6"
+plotly = "0.13.5"
+rustfft = "=6.4.1"
