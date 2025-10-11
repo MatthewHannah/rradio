@@ -1,5 +1,6 @@
 use num_complex::Complex32;
 
+#[derive(Clone)]
 pub struct Osc {
     phase: f32,
     increment: f32,

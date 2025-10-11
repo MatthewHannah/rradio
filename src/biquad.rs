@@ -7,6 +7,7 @@ pub trait Filterable<Num> :
 impl<T> Filterable<T> for T where
     T: Add<T, Output=T> + Sub<T, Output=T> + Mul<f32,Output = T> + Zero + Copy {}
 
+#[derive(Debug, Clone)]
 pub struct Biquad<Num> {
     b0: f32,
     b1: f32,
