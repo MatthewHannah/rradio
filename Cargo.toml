@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+cpal = "0.16.0"
 num-complex = "0.4.6"
+num-traits = "0.2.19"
 plotly = "0.13.5"
 rustfft = "=6.4.1"

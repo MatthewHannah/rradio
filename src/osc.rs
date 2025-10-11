@@ -40,7 +40,7 @@ mod tests {
 
     #[test]
     fn test_osc() {
-        let mut o = Osc::new(1e3, 1e6);
+        let o = Osc::new(1e3, 1e6);
         let samples: Vec<Complex32> = o.take(2000).collect();
         assert!(samples[0].re() - 1.0 < 0.01);
         assert!(samples[1000].re() - 1.0 < 0.01);

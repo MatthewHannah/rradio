@@ -1,25 +1,25 @@
-use num_complex::Complex32;
+use num_traits::Zero;
 
-pub struct Upsample<I> {
+pub struct Upsample<I, T> where I: Iterator<Item = T>, T: Copy + Zero {
     iter: I,
     factor: usize,
-    cur: Complex32,
+    cur: T,
     idx: usize,
 }
 
-impl<I> Upsample<I> {
+impl<I, T> Upsample<I, T> where I: Iterator<Item = T>, T: Copy + Zero {
     pub fn new(iter: I, factor: usize) -> Self {
         Upsample {
             iter: iter,
             factor: factor,
-            cur: Complex32::new(0.0, 0.0),
+            cur: T::zero(),
             idx: 0,
         }
     }
 }
 
-impl<I> Iterator for Upsample<I> where I: Iterator<Item = Complex32> {
-    type Item = Complex32;
+impl<I, T> Iterator for Upsample<I, T> where I: Iterator<Item = T>, T: Copy + Zero {
+    type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.idx == 0 {
@@ -30,12 +30,12 @@ impl<I> Iterator for Upsample<I> where I: Iterator<Item = Complex32> {
     }
 }
 
-pub trait Upsampleable {
-    fn upsample(self, factor: usize) -> Upsample<Self> where Self: Sized;
+pub trait Upsampleable<T> {
+    fn upsample(self, factor: usize) -> Upsample<Self, T> where Self: Sized + Iterator<Item = T>, T: Copy + Zero;
 }
 
-impl<I> Upsampleable for I where I: Iterator<Item = Complex32> {
-    fn upsample(self, factor: usize) -> Upsample<I> {
+impl<I, T> Upsampleable<T> for I where I: Iterator<Item = T>, T: Copy + Zero {
+    fn upsample(self, factor: usize) -> Upsample<I,T> {
         Upsample::new(self, factor)
     }
 }
@@ -54,8 +54,8 @@ impl<I> Downsample<I> {
     }
 }
 
-impl<I> Iterator for Downsample<I> where I: Iterator<Item = Complex32> {
-    type Item = Complex32;
+impl<I> Iterator for Downsample<I> where I: Iterator {
+    type Item = I::Item;
 
     fn next(&mut self) -> Option<Self::Item> {
         let val = self.iter.next();
@@ -70,7 +70,7 @@ pub trait Downsampleable {
     fn downsample(self, factor: usize) -> Downsample<Self> where Self: Sized;
 }
 
-impl<I> Downsampleable for I where I: Iterator<Item = Complex32> {
+impl<I> Downsampleable for I where I: Iterator {
     fn downsample(self, factor: usize) -> Downsample<I> {
         Downsample::new(self, factor)
     }
@@ -80,6 +80,7 @@ impl<I> Downsampleable for I where I: Iterator<Item = Complex32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use num_complex::Complex32;
 
     #[test]
     fn test_upsample() {
