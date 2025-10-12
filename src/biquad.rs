@@ -1,11 +1,4 @@
-use std::ops::{Mul, Add, Sub};
-use num_traits::Zero;
-
-pub trait Filterable<Num> :
-    Add<Num, Output=Num> + Sub<Num, Output=Num> + Mul<f32,Output = Num> + Zero + Copy {}
-
-impl<T> Filterable<T> for T where
-    T: Add<T, Output=T> + Sub<T, Output=T> + Mul<f32,Output = T> + Zero + Copy {}
+use crate::filterable::{Filterable, Filter};
 
 #[derive(Debug, Clone)]
 pub struct Biquad<Num> {
@@ -45,36 +38,9 @@ impl<Num> Biquad<Num> where Num: Filterable<Num> {
     }
 }
 
-pub struct BiquadIter<I, Num> where I: Iterator<Item = Num>, Num: Filterable<Num> {
-    iter: I,
-    biquad: Biquad<Num>,
-}
-
-impl<I, Num> BiquadIter<I, Num> where I: Iterator<Item = Num>, Num: Filterable<Num> {
-    pub fn new(iter: I, b: Biquad<Num>) -> Self {
-        BiquadIter {
-            iter,
-            biquad: b,
-        }
-    }
-}
-
-impl<I, Num> Iterator for BiquadIter<I, Num> where I: Iterator<Item = Num>, Num: Filterable<Num> {
-    type Item = Num;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let sample = self.iter.next()?;
-        Some(self.biquad.process(sample))
-    }
-}
-
-pub trait Biquadable<Num> where Num: Filterable<Num> {
-    fn biquad(self, b: Biquad<Num>) -> BiquadIter<Self, Self::Item> where Self: Sized, Self: Iterator<Item = Num>;
-}
-
-impl<I, Num> Biquadable<Num> for I where I: Iterator<Item = Num>, Num: Filterable<Num> {
-    fn biquad(self, b: Biquad<Num>) -> BiquadIter<Self, Num> {
-        BiquadIter::new(self, b)
+impl<Num> Filter<Num> for Biquad<Num> where Num: Filterable<Num> {
+    fn process(&mut self, x: Num) -> Num {
+        self.process(x)
     }
 }
 

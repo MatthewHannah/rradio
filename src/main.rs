@@ -4,18 +4,22 @@ mod biquad;
 mod resample;
 mod fm_demod;
 mod playback;
+mod deemphasis;
+mod filterable;
+mod spy;
 
 use plotly::{HeatMap, Plot, Scatter};
 use plotly::common::Mode;
 use num_complex::Complex32;
 use rustfft::{num_traits::Zero, FftPlanner};
 
-use crate::biquad::Biquadable;
+use crate::filterable::FilterableIter;
 use crate::fm_demod::FmDemodulatable;
 use crate::resample::Upsampleable;
 use crate::resample::Downsampleable;
+use crate::spy::SpyableIter;
 
-fn spectrogram(window_size: usize, overlap: usize, fs: f32, samples: &[Complex32]) {
+fn spectrogram<T>(window_size: usize, overlap: usize, fs: f32, samples: &[T]) where Complex32: From<T>, T: Copy {
     let mut ffts: Vec<Vec<f32>> = vec![];
     let mut start: usize = 0;
     let mut stop: usize = start + window_size;
@@ -26,7 +30,7 @@ fn spectrogram(window_size: usize, overlap: usize, fs: f32, samples: &[Complex32
     let mut holder = vec![Complex32::zero(); window_size];
 
     while stop < samples.len() {
-        let mut working: Vec<Complex32> = samples[start..stop].iter().cloned().collect();
+        let mut working: Vec<Complex32> = samples[start..stop].iter().cloned().map(|x| Complex32::from(x)).collect();
         fft.process(&mut working);
 
         holder[window_size/2..].copy_from_slice(&working[..window_size/2]);
@@ -38,7 +42,7 @@ fn spectrogram(window_size: usize, overlap: usize, fs: f32, samples: &[Complex32
     }
 
     if stop != samples.len() {
-        let mut remainder: Vec<Complex32> = samples[start..].iter().cloned().collect();
+        let mut remainder: Vec<Complex32> = samples[start..].iter().cloned().map(|x| Complex32::from(x)).collect();
         remainder.resize(window_size, Complex32::zero());
         fft.process(&mut remainder);
 
@@ -69,14 +73,27 @@ fn plot_re_im(samples: &[Complex32]) {
     plot.show();
 }
 
-fn mono_to_stereo(samples: Vec<f32>) -> Vec<f32> {
-    let mut out: Vec<f32> = vec![];
-    out.reserve(samples.len() * 2);
-    for s in samples {
-        out.push(s);
-        out.push(s);
-    }
-    out
+fn play_mono<I>(demoded: I, fs: f32) where I: Iterator<Item = f32> + Send + 'static {
+    // grab mono and downsample to 48 KHz
+    let mono_filt = biquad::Biquad::new(0.04125202, 0.08250404, 0.04125202, -1.34891824, 0.51392633);
+    let mono_filt_stage2 = mono_filt.clone();
+    let pilot_notch = biquad::Biquad::new(0.69904438, 1.10917838, 0.69904438, 1.10917838, 0.39808875);
+    let mono = demoded.dsp_filter(mono_filt).dsp_filter(mono_filt_stage2).downsample(5).dsp_filter(pilot_notch);
+
+    let fs = fs / 5.0;
+
+    let deemph = deemphasis::Deemphasis::new(fs, 75e-6);
+    let mono = mono.dsp_filter(deemph);
+
+    let stereo_mono = mono.upsample(2);
+
+    let now = std::time::Instant::now();
+    let seconds_to_play = 5;
+    let mono_audio = stereo_mono.take((fs as usize) * seconds_to_play * 2).collect::<Vec<f32>>();
+    println!("Took {:?} to do {} of audio", now.elapsed(), seconds_to_play);
+
+    playback::playback_buffer(mono_audio, fs as u32);
+    //playback::playback_iter(stereo_mono, fs as u32);
 }
 
 fn main() {
@@ -91,45 +108,43 @@ fn main() {
 
     // select channel
     let center_freq = 94.5e6;
-    let station = 93.7e6;
+    let station = 96.1e6;
     let freq_shift: f32 = center_freq - station;
 
     if freq_shift.abs() > ((bw / 2.0) - 200e3) {
         panic!("Station {} MHz is out of the capture bandwidth {} MHz centered at {} MHz", station / 1e6, bw / 1e6, center_freq / 1e6);
     }
 
-    let mut o = osc::Osc::new(freq_shift, fs);
-    let shifted = file.zip(o.iter_mut()).map(|(s, w)| s * w);
+    let o = osc::Osc::new(freq_shift, fs);
+    let shifted = file.zip(o.into_iter()).map(|(s, w)| s * w);
 
     // filter and resample to 1.2 Msps
     let filt1 = biquad::Biquad::new(0.02008282, 0.04016564, 0.02008282, -1.56097580, 0.64130708);
     let filt2 = filt1.clone();
-    let filtered = shifted.biquad(filt1).biquad(filt2);
+    let filtered = shifted.dsp_filter(filt1).dsp_filter(filt2);
     let fs = fs * (up as f32) / (down as f32);
     let resampled = filtered.upsample(up).downsample(down);
 
     // demodulate FM
     let fm_filt = biquad::Biquad::new(0.03357068, 0.06714135, 0.03357068, -1.41893478, 0.55321749);
-    let fm_filt_stage_2 = biquad::Biquad::new(0.03357068, 0.06714135, 0.03357068, -1.41893478, 0.55321749);
-    let demoded = resampled.biquad(fm_filt).fm_demodulate(fm_filt_stage_2).downsample(down);
+    let fm_loop_filt = biquad::Biquad::new(0.03357068, 0.06714135, 0.03357068, -1.41893478, 0.55321749);
+    let demoded = resampled.dsp_filter(fm_filt).fm_demodulate(fm_loop_filt).downsample(down);
     let fs = fs / (down as f32);
     //spectrogram(8192, 256, fs, demoded.take(1000000).map(|x| Complex32::new(x, 0.0)).collect::<Vec<Complex32>>().as_slice());
 
-    // grab mono and downsample to 48 KHz
-    let mono_filt = biquad::Biquad::new(0.04125202, 0.08250404, 0.04125202, -1.34891824, 0.51392633);
-    let mono_filt_stage2 = mono_filt.clone();
-    let pilot_notch = biquad::Biquad::new(0.69904438, 1.10917838, 0.69904438, 1.10917838, 0.39808875);
-    let mono = demoded.biquad(mono_filt).biquad(mono_filt_stage2).downsample(down).biquad(pilot_notch);
+    // pilot recovery
+    // filter for pilot (maybe unneeded)
+    // 240kHz sample, 19kHz center, Q = 8
+    let pilot_filt = biquad::Biquad::new(0.02895880, 0.0, -0.02895880, -1.70673525, 0.94208240);
+    let pilot = demoded.dsp_filter(pilot_filt);
 
-    let fs = fs / (down as f32);
+    spectrogram(8192, 256, fs, pilot.take(1000000).collect::<Vec<f32>>().as_slice());
 
-    //spectrogram(8192, 256, fs, mono.take(100000).map(|x| Complex32::new(x, 0.0)).collect::<Vec<Complex32>>().as_slice());
-    let now = std::time::Instant::now();
-    let mono_audio = mono.take((fs as usize) * 3).collect::<Vec<f32>>();
-    println!("Took {:?} to do 10s of audio", now.elapsed());
+    // spin up pll on pilot
+    // multiple output by itself to get 38 kHz
+    // lowpass to get 38 ref
+    // multiply by 38 kHz ref to get stereo difference
+    // lowpass to get stereo difference
 
-    //let clone = mono_audio.clone();
-    //spectrogram(8192, 256, fs, clone.into_iter().map(|x| Complex32::new(x, 0.0)).collect::<Vec<Complex32>>().as_slice());
-
-    playback::playback_buffer(mono_to_stereo(mono_audio), 48_000);
+    //play_mono(demoded, fs);
 }

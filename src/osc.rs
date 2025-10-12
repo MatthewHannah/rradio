@@ -19,10 +19,6 @@ impl Osc {
         self.phase = (self.phase + self.increment) % 1.0;
         Complex32::new(phase.cos(), phase.sin())
     }
-
-    pub fn iter_mut(&mut self) -> &mut Self {
-        self
-    }
 }
 
 impl Iterator for Osc {

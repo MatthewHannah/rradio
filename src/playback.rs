@@ -1,7 +1,7 @@
 use std::time::Duration;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, Condvar};
 
-use cpal::{Data, FromSample, Host, OutputCallbackInfo, Sample, SampleFormat, StreamError};
+use cpal::{OutputCallbackInfo, SampleFormat, StreamError};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 
@@ -44,17 +44,18 @@ pub fn playback_sine(freq: f32, fs: u32, duration: Duration) {
     playback(fs, data_fn, err_fn, stop_fn);
 }
 
-pub fn playback_buffer(samples: Vec<f32>, fs: u32) {
-    let mut sample_iter = samples.into_iter();
-    let cv = std::sync::Condvar::new();
-    let done = std::sync::Mutex::new(false);
-    let data_done_signal = std::sync::Arc::new((cv, done));
+pub fn playback_iter<I>(mut samples: I, fs: u32) where
+    I: Iterator<Item=f32> + Send + 'static
+{
+    let cv = Condvar::new();
+    let done = Mutex::new(false);
+    let data_done_signal =Arc::new((cv, done));
     let wait_done_signal = data_done_signal.clone();
 
     let data_fn = move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
         let mut done = false;
         for sample in data.iter_mut() {
-            *sample = match sample_iter.next() {
+            *sample = match samples.next() {
                 Some(s) => s,
                 None => {
                     done = true;
@@ -70,15 +71,17 @@ pub fn playback_buffer(samples: Vec<f32>, fs: u32) {
             cv.notify_all();
         }
     };
-
     let err_fn = |err| eprintln!("an error occurred on the output audio stream: {}", err);
     let stop_fn = || {
         let (cv, lock) = &*wait_done_signal;
         let guard = lock.lock().unwrap();
         drop(cv.wait_while(guard, |d| !*d).unwrap());
     };
-
     playback(fs, data_fn, err_fn, stop_fn);
+}
+
+pub fn playback_buffer(samples: Vec<f32>, fs: u32) {
+    playback_iter(samples.into_iter(), fs);
 }
 
 #[derive(Clone)]
