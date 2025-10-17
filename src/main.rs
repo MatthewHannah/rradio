@@ -7,17 +7,23 @@ mod playback;
 mod deemphasis;
 mod filterable;
 mod spy;
+mod pll;
+mod interleaver;
+mod wideband_fm_audio;
 
 use plotly::{HeatMap, Plot, Scatter};
 use plotly::common::Mode;
 use num_complex::Complex32;
 use rustfft::{num_traits::Zero, FftPlanner};
 
-use crate::filterable::FilterableIter;
+use crate::filterable::{Filter, FilterableIter};
 use crate::fm_demod::FmDemodulatable;
+use crate::interleaver::InterleaveableIter;
+use crate::playback::playback_iter;
 use crate::resample::Upsampleable;
 use crate::resample::Downsampleable;
 use crate::spy::SpyableIter;
+use crate::wideband_fm_audio::WidebandFmAudioIterable;
 
 fn spectrogram<T>(window_size: usize, overlap: usize, fs: f32, samples: &[T]) where Complex32: From<T>, T: Copy {
     let mut ffts: Vec<Vec<f32>> = vec![];
@@ -96,10 +102,14 @@ fn play_mono<I>(demoded: I, fs: f32) where I: Iterator<Item = f32> + Send + 'sta
     //playback::playback_iter(stereo_mono, fs as u32);
 }
 
+
 fn main() {
+
+    let default_station = 96.1;
+    let station: f32 = std::env::args().skip(1).next().map(|x| x.parse()).unwrap_or(Ok(default_station)).unwrap_or(default_station) * 1e6;
+
     let fs = 6e6f32;
 
-    let up = 1;
     let down = 5;
 
     let file = sigmf::SigmfStreamer::new("./res/fm_radio_20250920_6msps.sigmf-data").unwrap();
@@ -108,12 +118,16 @@ fn main() {
 
     // select channel
     let center_freq = 94.5e6;
-    let station = 96.1e6;
     let freq_shift: f32 = center_freq - station;
 
     if freq_shift.abs() > ((bw / 2.0) - 200e3) {
         panic!("Station {} MHz is out of the capture bandwidth {} MHz centered at {} MHz", station / 1e6, bw / 1e6, center_freq / 1e6);
     }
+
+    // let spy_fs = fs;
+    // let file = file.spy(500_000, move |s| {
+    //     spectrogram(8192, 256, spy_fs, &s);
+    // });
 
     let o = osc::Osc::new(freq_shift, fs);
     let shifted = file.zip(o.into_iter()).map(|(s, w)| s * w);
@@ -122,29 +136,29 @@ fn main() {
     let filt1 = biquad::Biquad::new(0.02008282, 0.04016564, 0.02008282, -1.56097580, 0.64130708);
     let filt2 = filt1.clone();
     let filtered = shifted.dsp_filter(filt1).dsp_filter(filt2);
-    let fs = fs * (up as f32) / (down as f32);
-    let resampled = filtered.upsample(up).downsample(down);
+    let fs = fs / (down as f32);
+    let resampled = filtered.downsample(down);
 
     // demodulate FM
     let fm_filt = biquad::Biquad::new(0.03357068, 0.06714135, 0.03357068, -1.41893478, 0.55321749);
     let fm_loop_filt = biquad::Biquad::new(0.03357068, 0.06714135, 0.03357068, -1.41893478, 0.55321749);
     let demoded = resampled.dsp_filter(fm_filt).fm_demodulate(fm_loop_filt).downsample(down);
     let fs = fs / (down as f32);
-    //spectrogram(8192, 256, fs, demoded.take(1000000).map(|x| Complex32::new(x, 0.0)).collect::<Vec<Complex32>>().as_slice());
 
-    // pilot recovery
-    // filter for pilot (maybe unneeded)
-    // 240kHz sample, 19kHz center, Q = 8
-    let pilot_filt = biquad::Biquad::new(0.02895880, 0.0, -0.02895880, -1.70673525, 0.94208240);
-    let pilot = demoded.dsp_filter(pilot_filt);
+    // let spy_fs = fs;
+    // let demoded = demoded.spy(500_000, move |s| {
+    //     spectrogram(8192, 256, spy_fs, &s);
+    // });
 
-    spectrogram(8192, 256, fs, pilot.take(1000000).collect::<Vec<f32>>().as_slice());
+    let lr = demoded.wfm_audio(fs).interleave();
+    let fs = fs / 5.0;
 
-    // spin up pll on pilot
-    // multiple output by itself to get 38 kHz
-    // lowpass to get 38 ref
-    // multiply by 38 kHz ref to get stereo difference
-    // lowpass to get stereo difference
+    let now = std::time::Instant::now();
+    let seconds_to_play = 7;
+    let audio = lr.take((fs as usize) * seconds_to_play * 2).collect::<Vec<f32>>();
+    println!("Took {:?} to do {} of audio", now.elapsed(), seconds_to_play);
 
-    //play_mono(demoded, fs);
+    playback::playback_buffer(audio, fs as u32);
+
+    //playback_iter(lr, fs as u32);
 }

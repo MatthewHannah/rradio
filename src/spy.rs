@@ -4,7 +4,7 @@ pub struct SpyIter<I> where I: Iterator, I::Item: Copy {
     count: usize,
     done: bool,
     buf: Vec<I::Item>,
-    callback: Option<Box<dyn FnOnce(Vec<I::Item>)>>,
+    callback: Option<Box<dyn FnOnce(Vec<I::Item>) + Send>>,
 }
 
 impl <I> Iterator for SpyIter<I> where I: Iterator, I::Item: Copy {
@@ -34,7 +34,7 @@ impl <I> Iterator for SpyIter<I> where I: Iterator, I::Item: Copy {
 }
 
 pub trait SpyableIter: Iterator + Sized {
-    fn spy<T>(self, count: usize, callback: T) -> SpyIter<Self> where T: FnOnce(Vec<Self::Item>) + 'static, Self::Item: Copy {
+    fn spy<T>(self, count: usize, callback: T) -> SpyIter<Self> where T: FnOnce(Vec<Self::Item>) + 'static + Send, Self::Item: Copy {
         SpyIter {
             iter: self,
             count,
