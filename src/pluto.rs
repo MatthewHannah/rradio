@@ -1,12 +1,20 @@
 use industrial_io as iio;
 use num_complex::Complex32;
+use num_traits::Zero;
+
+static PLUTO_SDR_STREAM_SIZE: usize = 1024 * 1024;
+static PLUTO_SDR_SCALE: f32 = 4096.0;
 
 pub struct PlutoSdr {
     adc: iio::Device,
-    phy: iio::Device, 
+    phy: iio::Device,
+    streaming: bool
+}
+
+pub struct PlutoSdrIqStreamer {
     rx_chan_i: iio::Channel,
     rx_chan_q: iio::Channel,
-    rx_buf: Option<iio::Buffer>,
+    rx_buf: iio::Buffer,
 }
 
 impl PlutoSdr {
@@ -14,45 +22,88 @@ impl PlutoSdr {
         let adc = ctx.find_device("cf-ad9361-lpc")?;
         let phy = ctx.find_device("ad9361-phy")?;
 
-        phy.find_channel("altvoltage0", iio::Direction::Output)?.attr_write_int("frequency", 96100000).ok()?;
-        phy.find_channel("voltage0", iio::Direction::Input)?.attr_write_int("sampling_frequency", 6000000).ok()?;
-        phy.find_channel("voltage0", iio::Direction::Input)?.attr_write_int("rf_bandwidth", 6000000).ok()?;
+        Some(PlutoSdr { adc, phy, streaming: false })
+    }
 
-        let rx_chan_i = adc.find_channel("voltage0", iio::Direction::Input)?;
-        let rx_chan_q = adc.find_channel("voltage1", iio::Direction::Input)?;
+    pub fn set_center(&self, center: f32) -> Result<(), iio::Error> {
+        self.phy
+            .find_channel("altvoltage0", iio::Direction::Output)
+            .ok_or(iio::Error::General("Missing channel".to_string()))?
+            .attr_write_int("frequency", center as i64)
+    }
 
-        //let rx_buf = adc.create_buffer(128, false).inspect_err(|e| println!("failed to create buffer {:?}", e)).ok()?;
+    pub fn set_rf_bandwidth(&self, bw: f32) -> Result<(), iio::Error> {
+        self.phy
+            .find_channel("voltage0", iio::Direction::Output)
+            .ok_or(iio::Error::General("Missing channel".to_string()))?
+            .attr_write_int("rf_bandwidth", bw as i64)
+    }
 
-        Some(PlutoSdr {
-            adc,
-            phy,
+    pub fn set_sampling_freq(&self, samp_freq: f32) -> Result<(), iio::Error> {
+        self.phy
+            .find_channel("voltage0", iio::Direction::Output)
+            .ok_or(iio::Error::General("Missing channel".to_string()))?
+            .attr_write_int("sampling_frequency", samp_freq as i64)
+    }
+
+    pub fn start_iq(&mut self) -> Result<PlutoSdrIqStreamer, iio::Error> {
+        if self.streaming {
+            return Err(iio::Error::General("Already streaming".to_string()));
+        }
+
+        let rx_chan_i = self
+            .adc
+            .find_channel("voltage0", iio::Direction::Input)
+            .ok_or(iio::Error::General("Missing channel".to_string()))?;
+        let rx_chan_q = self
+            .adc
+            .find_channel("voltage1", iio::Direction::Input)
+            .ok_or(iio::Error::General("Missing channel".to_string()))?;
+
+        rx_chan_i.enable();
+        rx_chan_q.enable();
+
+        // this has to be 1024*1024 otherwise you drop samples and distort phases
+        let rx_buf = self
+            .adc
+            .create_buffer(PLUTO_SDR_STREAM_SIZE, false)
+            .inspect_err(|e| println!("failed to create buffer {:?}", e))?;
+
+        self.streaming = true;
+
+        Ok(PlutoSdrIqStreamer {
             rx_chan_i,
             rx_chan_q,
-            rx_buf: None,
+            rx_buf,
         })
     }
 
-    pub fn start(&mut self) -> Result<(), iio::Error>{
-        self.rx_chan_i.enable();
-        self.rx_chan_q.enable();
+    pub fn stop_iq(&mut self, streamer: PlutoSdrIqStreamer) {
+        streamer.rx_chan_i.disable();
+        streamer.rx_chan_q.disable();
 
-        // this has to be 1024*1024 otherwise you drop samples and distort phases
-        self.rx_buf = Some(self.adc.create_buffer(1024*1024, false).inspect_err(|e| println!("failed to create buffer {:?}", e))?);
+        self.streaming = false;
+    }
+}
+
+impl PlutoSdrIqStreamer {
+    pub fn collect_iq(&mut self, data: &mut Vec<Complex32>) -> Result<(), iio::Error> {
+        self.rx_buf
+            .refill()
+            .inspect_err(|e| println!("refill failed {:?}", e))?;
+
+        // need to enfoce i16 here or else it will interpret bag of bytes incorrectly
+        let i_it = self.rx_buf.channel_iter::<i16>(&self.rx_chan_i);
+        let q_it = self.rx_buf.channel_iter::<i16>(&self.rx_chan_q);
+
+        data.resize(PLUTO_SDR_STREAM_SIZE, Complex32::zero());
+
+        i_it.zip(q_it)
+            .zip(data.iter_mut())
+            .for_each(|((&i, &q), o)| {
+                *o = Complex32::new((i as f32) / PLUTO_SDR_SCALE, (q as f32) / PLUTO_SDR_SCALE)
+            });
 
         Ok(())
     }
-
-    pub fn stop(&mut self) {
-        self.rx_chan_i.disable();
-        self.rx_chan_q.disable();
-    }
-
-    pub fn collect_iq(&mut self) -> Option<Vec<Complex32>> {
-        self.rx_buf.as_mut()?.refill().inspect_err(|e| println!("refill failed {:?}", e)).ok()?;
-        let i = self.rx_chan_i.read::<i16>(self.rx_buf.as_mut()?).ok()?;
-        let q = self.rx_chan_q.read::<i16>(self.rx_buf.as_mut()?).ok()?;
-        
-        Some(i.iter().zip(q.iter()).map(|(&i, &q)| Complex32::new(i as f32 / 4096.0, q as f32 / 4096.0)).collect())
-    }
-
 }
