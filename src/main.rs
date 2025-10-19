@@ -10,6 +10,7 @@ mod spy;
 mod pll;
 mod interleaver;
 mod wideband_fm_audio;
+mod pluto;
 
 use plotly::{HeatMap, Plot, Scatter};
 use plotly::common::Mode;
@@ -106,31 +107,49 @@ fn play_mono<I>(demoded: I, fs: f32) where I: Iterator<Item = f32> + Send + 'sta
 fn main() {
 
     let default_station = 96.1;
-    let station: f32 = std::env::args().skip(1).next().map(|x| x.parse()).unwrap_or(Ok(default_station)).unwrap_or(default_station) * 1e6;
+    let station: f32 = std::env::args().skip(1).next().map(|x| x.parse()).unwrap_or(Ok(default_station)).unwrap_or(default_station) * 1e6;    
 
     let fs = 6e6f32;
 
     let down = 5;
 
-    let file = sigmf::SigmfStreamer::new("./res/fm_radio_20250920_6msps.sigmf-data").unwrap();
+    let ctx = industrial_io::Context::from_uri("ip:192.168.2.1").unwrap();
+    let mut sdr = pluto::PlutoSdr::new(ctx).unwrap();
+    let center_freq: f32 = 96.1e6;
+    let bw: f32 = 6e6;
+    
+    sdr.start().unwrap();
+    
+    let mut samples: Vec<Complex32> = vec![];
+    
+    let second_collect = 5;
+    let samples_collect = second_collect * 6000000;
+    
+    while samples.len() < samples_collect {
+        let mut s = sdr.collect_iq().unwrap();
+        samples.append(&mut s);
+    }
 
-    let bw = 6e6;
+    let samples = samples.into_iter();
+
+    // let samples = sigmf::SigmfStreamer::new("./res/fm_radio_20250920_6msps.sigmf-data").unwrap();
+    // let center_freq = 94.5e6;
+    // let bw: f32 = 6e6;
 
     // select channel
-    let center_freq = 94.5e6;
     let freq_shift: f32 = center_freq - station;
-
     if freq_shift.abs() > ((bw / 2.0) - 200e3) {
         panic!("Station {} MHz is out of the capture bandwidth {} MHz centered at {} MHz", station / 1e6, bw / 1e6, center_freq / 1e6);
     }
 
     // let spy_fs = fs;
-    // let file = file.spy(500_000, move |s| {
+    // let samples = samples.spy(500_000, move |s| {
     //     spectrogram(8192, 256, spy_fs, &s);
+    //     //plot_re_im(&s);
     // });
 
     let o = osc::Osc::new(freq_shift, fs);
-    let shifted = file.zip(o.into_iter()).map(|(s, w)| s * w);
+    let shifted = samples.zip(o.into_iter()).map(|(s, w)| s * w);
 
     // filter and resample to 1.2 Msps
     let filt1 = biquad::Biquad::new(0.02008282, 0.04016564, 0.02008282, -1.56097580, 0.64130708);
@@ -138,6 +157,11 @@ fn main() {
     let filtered = shifted.dsp_filter(filt1).dsp_filter(filt2);
     let fs = fs / (down as f32);
     let resampled = filtered.downsample(down);
+
+    // let spy_fs = fs;
+    // let resampled = resampled.spy(500_000, move |s| {
+    //     spectrogram(8192, 256, spy_fs, &s);
+    // });
 
     // demodulate FM
     let fm_filt = biquad::Biquad::new(0.03357068, 0.06714135, 0.03357068, -1.41893478, 0.55321749);
@@ -154,11 +178,13 @@ fn main() {
     let fs = fs / 5.0;
 
     let now = std::time::Instant::now();
-    let seconds_to_play = 7;
+    let seconds_to_play = 3;
     let audio = lr.take((fs as usize) * seconds_to_play * 2).collect::<Vec<f32>>();
     println!("Took {:?} to do {} of audio", now.elapsed(), seconds_to_play);
 
     playback::playback_buffer(audio, fs as u32);
+
+    sdr.stop();
 
     //playback_iter(lr, fs as u32);
 }

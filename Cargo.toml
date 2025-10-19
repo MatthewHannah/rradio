@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 cpal = "0.16.0"
+industrial-io = "0.6.1"
 num-complex = "0.4.6"
 num-traits = "0.2.19"
 plotly = "0.13.5"
