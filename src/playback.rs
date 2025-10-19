@@ -16,7 +16,7 @@ fn playback<D,E,S>(fs: u32, data_callback: D, error_callback: E, stop_callback: 
         .expect("error while querying configs");
 
     let supported_config = supported_configs_range.find(|config| {
-        config.max_sample_rate().0 >= fs && config.min_sample_rate().0 <= fs
+        config.max_sample_rate().0 >= fs && config.min_sample_rate().0 <= fs && config.sample_format() == SampleFormat::F32 && config.channels() == 2
     }).expect("no supported config with required sample rate").with_sample_rate(cpal::SampleRate(fs));
 
     println!("Output config: {:?}", supported_config);
