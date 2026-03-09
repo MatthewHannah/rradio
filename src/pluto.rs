@@ -88,15 +88,15 @@ impl PlutoSdr {
 
 impl PlutoSdrIqStreamer {
     pub fn collect_iq(&mut self, data: &mut Vec<Complex32>) -> Result<(), iio::Error> {
-        self.rx_buf
+        let buf_size = self.rx_buf
             .refill()
             .inspect_err(|e| println!("refill failed {:?}", e))?;
 
-        // need to enfoce i16 here or else it will interpret bag of bytes incorrectly
+        // need to enforce i16 here or else it will interpret bag of bytes incorrectly
         let i_it = self.rx_buf.channel_iter::<i16>(&self.rx_chan_i);
         let q_it = self.rx_buf.channel_iter::<i16>(&self.rx_chan_q);
 
-        data.resize(PLUTO_SDR_STREAM_SIZE, Complex32::zero());
+        data.resize(buf_size, Complex32::zero());
 
         i_it.zip(q_it)
             .zip(data.iter_mut())

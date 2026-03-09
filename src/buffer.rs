@@ -59,7 +59,7 @@ where
     buf_in: mpsc::Receiver<QueueItem<T>>,
     buf_out: mpsc::Sender<QueueItem<T>>,
     buf_return: mpsc::Sender<QueueItem<T>>,
-    done: bool, // used since we have a circular reference to 
+    done: bool, // used since we have a circular reference to
 }
 
 impl<T> SendBuf<T>
@@ -207,8 +207,8 @@ impl<T> Iterator for RecvBufIter<T> where T: Copy + Debug {
         if self.curr.is_none() || self.idx >= self.curr.as_ref().expect("should be some, checked is none").len() {
             self.maybe_load_next()?;
         }
-        
-        let idx: usize = self.idx;    
+
+        let idx: usize = self.idx;
         self.idx += 1;
         Some(self.curr.as_ref()?[idx])
     }
@@ -269,7 +269,7 @@ mod tests {
             // intentionally do not release, should still return the buf after token drops
             // rx.release(token);
         }
-        
+
         // should be able to still reacquire buffers to send now
         for i in 0..5 {
             let mut token = tx.get().unwrap();

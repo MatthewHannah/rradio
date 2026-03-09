@@ -117,9 +117,34 @@ fn buffer_iq(done: &atomic::AtomicBool, streamer: &mut PlutoSdrIqStreamer, mut o
     }
 }
 
+fn buffer_sigmf(done: &atomic::AtomicBool, mut streamer: sigmf::SigmfStreamer, mut out: buffer::SendBuf<Vec<Complex32>>, tune_offset: f32) {
+    const CHUNK: usize = 4*1024*1024;
+    let mut iter = 0;
+    let mut osc = osc::Osc::new(tune_offset, 6e6);
+    while !done.load(atomic::Ordering::SeqCst) {
+        if let Some(mut buf) = out.get() {
+            buf.clear();
+            buf.extend((&mut streamer).take(CHUNK).map(|s| s * osc.next()));
+            if buf.is_empty() {
+                break;
+            }
+            iter += 1;
+            println!("Input chunk {}", iter);
+            out.commit(buf);
+        }
+    }
+}
+
 fn audio_pipeline(done: &atomic::AtomicBool, fs: f32, mut inbuf: buffer::RecvBuf<Vec<Complex32>>, mut outbuf: buffer::SendBuf<Vec<f32>>) {
     let down = 5;
     let samples = buffer::RecvBufIter::new(inbuf);
+
+    // let fs_spy = fs;
+    // let samples = samples.spy(6000000, move |iq_samples| {
+    //     println!("Got {} IQ samples for spectrogram", iq_samples.len());
+    //     spectrogram(8192, 512, fs_spy, &iq_samples);
+    //     plot_re_im(&iq_samples);
+    // });
 
     // audio pipeline
     let filt1 = biquad::Biquad::new(0.02008282, 0.04016564, 0.02008282, -1.56097580, 0.64130708);
@@ -128,30 +153,47 @@ fn audio_pipeline(done: &atomic::AtomicBool, fs: f32, mut inbuf: buffer::RecvBuf
     let fs: f32 = fs / (down as f32);
     let resampled = filtered.downsample(down);
 
+    // // add in a spy here to see the demodulated audio spectrum
+    // let fs_spy = fs;
+    // let resampled = resampled.spy(6000000, move |audio_samples| {
+    //     println!("Got {} audio samples for spectrogram", audio_samples.len());
+    //     spectrogram(8192, 512, fs_spy, &audio_samples);
+    //     plot_re_im(&audio_samples);
+    // });
+
     let fm_filt = biquad::Biquad::new(0.03357068, 0.06714135, 0.03357068, -1.41893478, 0.55321749);
     let fm_loop_filt = biquad::Biquad::new(0.03357068, 0.06714135, 0.03357068, -1.41893478, 0.55321749);
     let demoded = resampled.dsp_filter(fm_filt).fm_demodulate(fm_loop_filt).downsample(down);
     let fs = fs / (down as f32);
+
+    // // add in a spy here to see the demodulated audio spectrum
+    // let fs_spy = fs;
+    // let demoded = demoded.spy(48000, move |audio_samples| {
+    //     println!("Got {} audio samples for spectrogram", audio_samples.len());
+    //     spectrogram(1024, 512, fs_spy, &audio_samples);
+    // });
 
     let mut lr = demoded.wfm_audio(fs).interleave();
     let fs = fs / 5.0;
 
     while !done.load(atomic::Ordering::SeqCst) {
         // buffering into outbuf
-        let mut out = outbuf.get().unwrap();
-        out.resize(8192, 0.0);
-        (&mut lr).take(8192).zip(out.iter_mut()).for_each(|(s, o)| *o = s);
+        let out = outbuf.get();
+        if out.is_none() {
+            break;
+        }
+        let mut out = out.unwrap();
+        out.clear();
+        out.extend((&mut lr).take(8192));
+
+        if out.is_empty() {
+            break;
+        }
         outbuf.commit(out);
     }
 }
 
-fn main() {
-
-    let default_station = 96.1;
-    let station: f32 = std::env::args().skip(1).next().map(|x| x.parse()).unwrap_or(Ok(default_station)).unwrap_or(default_station) * 1e6;    
-
-    let fs = 6e6f32;
-
+fn run_from_sdr(station: f32, fs: f32, done_sig: Arc<atomic::AtomicBool>) {
     let ctx = industrial_io::Context::from_uri("ip:192.168.2.1").unwrap();
     let mut sdr = pluto::PlutoSdr::new(ctx).unwrap();
     let bw: f32 = 6e6;
@@ -159,20 +201,13 @@ fn main() {
     sdr.set_center(station).unwrap();
     sdr.set_rf_bandwidth(bw).unwrap();
     sdr.set_sampling_freq(fs).unwrap();
-       
-    let done_sig = Arc::new(atomic::AtomicBool::new(false));
 
     let (iq_tx, iq_rx) = buffer::buf_pair(8);
     let (audio_tx, audio_rx) = buffer::buf_pair(8);
 
     let done_ref = done_sig.clone();
-    ctrlc::set_handler(move || {
-        done_ref.store(true, atomic::Ordering::SeqCst);
-    }).expect("Error setting CTRL-C handler");
-
-    let done_ref = done_sig.clone();
     let iq_thread = std::thread::spawn(move || {
-        let mut iq_streamer= sdr.start_iq().unwrap();
+        let mut iq_streamer = sdr.start_iq().unwrap();
         buffer_iq(&done_ref, &mut iq_streamer, iq_tx);
         sdr.stop_iq(iq_streamer);
     });
@@ -183,18 +218,64 @@ fn main() {
     });
 
     let audio_rx_iter = buffer::RecvBufIter::new(audio_rx);
-
-    let fs = 48000.0;
-    // let now = std::time::Instant::now();
-    // let seconds_to_play = 10;
-    // let audio = audio_rx_iter.take((fs as usize) * seconds_to_play).collect::<Vec<f32>>();
-    // println!("Audio len {}", audio.len());
-    // println!("Took {:?} to do {} of audio", now.elapsed(), seconds_to_play);
-
-    playback::playback_iter(audio_rx_iter, fs as u32);
+    playback::playback_iter(audio_rx_iter, 48000);
 
     iq_thread.join().unwrap();
     audio_thread.join().unwrap();
+}
 
-    //playback_iter(lr, fs as u32);
+fn run_from_sigmf(path: &str, fs: f32, done_sig: Arc<atomic::AtomicBool>) {
+    let streamer = sigmf::SigmfStreamer::new(path).expect("Failed to open SigMF file");
+
+    let (iq_tx, iq_rx) = buffer::buf_pair(8);
+    let (audio_tx, audio_rx) = buffer::buf_pair(8);
+
+    let done_ref = done_sig.clone();
+    let iq_thread = std::thread::spawn(move || {
+        buffer_sigmf(&done_ref, streamer, iq_tx, 400e3);
+    });
+
+    let done_ref = done_sig.clone();
+    let audio_thread = std::thread::spawn(move || {
+        audio_pipeline(&done_ref, fs, iq_rx, audio_tx);
+    });
+
+    let audio_rx_iter = buffer::RecvBufIter::new(audio_rx);
+    // let audio_samples: Vec<f32> = audio_rx_iter.take(48000 * 10).collect();
+    // playback::playback_buffer(audio_samples, 48000);
+    playback::playback_iter(audio_rx_iter, 48000);
+    done_sig.store(true, atomic::Ordering::SeqCst);
+
+    iq_thread.join().unwrap();
+    audio_thread.join().unwrap();
+}
+
+fn main() {
+    let mut args = std::env::args().skip(1);
+
+    let done_sig = Arc::new(atomic::AtomicBool::new(false));
+
+    let done_ref = done_sig.clone();
+    ctrlc::set_handler(move || {
+        done_ref.store(true, atomic::Ordering::SeqCst);
+    }).expect("Error setting CTRL-C handler");
+
+    match args.next().as_deref() {
+        Some("sigmf") => {
+            let path = args.next().expect("Usage: rradio sigmf <path> [fs_mhz]");
+            let fs: f32 = args.next()
+                .map(|x| x.parse().expect("Invalid sample rate"))
+                .unwrap_or(6e6);
+            run_from_sigmf(&path, fs, done_sig);
+        }
+        station_arg => {
+            let default_station = 96.1;
+            let station: f32 = station_arg
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(default_station)
+                * 1e6;
+            let fs = 6e6f32;
+            run_from_sdr(station, fs, done_sig);
+        }
+    }
 }
