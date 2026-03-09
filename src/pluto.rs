@@ -1,6 +1,5 @@
 use industrial_io as iio;
 use num_complex::Complex32;
-use num_traits::Zero;
 
 static PLUTO_SDR_STREAM_SIZE: usize = 1024 * 1024;
 static PLUTO_SDR_SCALE: f32 = 4096.0;
@@ -88,7 +87,7 @@ impl PlutoSdr {
 
 impl PlutoSdrIqStreamer {
     pub fn collect_iq(&mut self, data: &mut Vec<Complex32>) -> Result<(), iio::Error> {
-        let buf_size = self.rx_buf
+        self.rx_buf
             .refill()
             .inspect_err(|e| println!("refill failed {:?}", e))?;
 
@@ -96,13 +95,11 @@ impl PlutoSdrIqStreamer {
         let i_it = self.rx_buf.channel_iter::<i16>(&self.rx_chan_i);
         let q_it = self.rx_buf.channel_iter::<i16>(&self.rx_chan_q);
 
-        data.resize(buf_size, Complex32::zero());
-
-        i_it.zip(q_it)
-            .zip(data.iter_mut())
-            .for_each(|((&i, &q), o)| {
-                *o = Complex32::new((i as f32) / PLUTO_SDR_SCALE, (q as f32) / PLUTO_SDR_SCALE)
-            });
+        data.clear();
+        data.extend(
+            i_it.zip(q_it)
+                .map(|(&i, &q)| Complex32::new((i as f32) / PLUTO_SDR_SCALE, (q as f32) / PLUTO_SDR_SCALE))
+        );
 
         Ok(())
     }
