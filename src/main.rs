@@ -13,23 +13,23 @@ mod wideband_fm_audio;
 mod pluto;
 mod buffer;
 
+use std::fs;
 use std::sync::atomic;
 use std::sync::Arc;
 
 use plotly::{HeatMap, Plot, Scatter};
-use plotly::common::Mode;
 use num_complex::Complex32;
 use rustfft::{num_traits::Zero, FftPlanner};
 
-use crate::filterable::{Filter, FilterableIter};
+use crate::filterable::FilterableIter;
 use crate::fm_demod::FmDemodulatable;
 use crate::interleaver::InterleaveableIter;
 use crate::pluto::PlutoSdrIqStreamer;
-use crate::resample::Upsampleable;
 use crate::resample::Downsampleable;
 use crate::spy::SpyableIter;
 use crate::wideband_fm_audio::WidebandFmAudioIterable;
 
+#[allow(dead_code)]
 fn spectrogram<T>(window_size: usize, overlap: usize, fs: f32, samples: &[T]) where Complex32: From<T>, T: Copy {
     let mut ffts: Vec<Vec<f32>> = vec![];
     let mut start: usize = 0;
@@ -72,6 +72,7 @@ fn spectrogram<T>(window_size: usize, overlap: usize, fs: f32, samples: &[T]) wh
     plot.show();
 }
 
+#[allow(dead_code)]
 fn plot_re_im(samples: &[Complex32]) {
     let sample_count: Vec<usize> = (0..samples.len()).collect();
     let r: Vec<f32> = samples.iter().map(|s| s.re).collect();
@@ -82,29 +83,6 @@ fn plot_re_im(samples: &[Complex32]) {
     plot.add_trace(rtrace);
     plot.add_trace(itrace);
     plot.show();
-}
-
-fn play_mono<I>(demoded: I, fs: f32) where I: Iterator<Item = f32> + Send + 'static {
-    // grab mono and downsample to 48 KHz
-    let mono_filt = biquad::Biquad::new(0.04125202, 0.08250404, 0.04125202, -1.34891824, 0.51392633);
-    let mono_filt_stage2 = mono_filt.clone();
-    let pilot_notch = biquad::Biquad::new(0.69904438, 1.10917838, 0.69904438, 1.10917838, 0.39808875);
-    let mono = demoded.dsp_filter(mono_filt).dsp_filter(mono_filt_stage2).downsample(5).dsp_filter(pilot_notch);
-
-    let fs = fs / 5.0;
-
-    let deemph = deemphasis::Deemphasis::new(fs, 75e-6);
-    let mono = mono.dsp_filter(deemph);
-
-    let stereo_mono = mono.upsample(2);
-
-    let now = std::time::Instant::now();
-    let seconds_to_play = 5;
-    let mono_audio = stereo_mono.take((fs as usize) * seconds_to_play * 2).collect::<Vec<f32>>();
-    println!("Took {:?} to do {} of audio", now.elapsed(), seconds_to_play);
-
-    playback::playback_buffer(mono_audio, fs as u32);
-    //playback::playback_iter(stereo_mono, fs as u32);
 }
 
 fn buffer_iq(done: &atomic::AtomicBool, streamer: &mut PlutoSdrIqStreamer, mut out: buffer::SendBuf<Vec<Complex32>>) {
@@ -119,7 +97,6 @@ fn buffer_iq(done: &atomic::AtomicBool, streamer: &mut PlutoSdrIqStreamer, mut o
 
 fn buffer_sigmf(done: &atomic::AtomicBool, mut streamer: sigmf::SigmfStreamer, mut out: buffer::SendBuf<Vec<Complex32>>, tune_offset: f32) {
     const CHUNK: usize = 4*1024*1024;
-    let mut iter = 0;
     let mut osc = osc::Osc::new(tune_offset, 6e6);
     while !done.load(atomic::Ordering::SeqCst) {
         if let Some(mut buf) = out.get() {
@@ -128,14 +105,12 @@ fn buffer_sigmf(done: &atomic::AtomicBool, mut streamer: sigmf::SigmfStreamer, m
             if buf.is_empty() {
                 break;
             }
-            iter += 1;
-            println!("Input chunk {}", iter);
             out.commit(buf);
         }
     }
 }
 
-fn audio_pipeline(done: &atomic::AtomicBool, fs: f32, mut inbuf: buffer::RecvBuf<Vec<Complex32>>, mut outbuf: buffer::SendBuf<Vec<f32>>) {
+fn audio_pipeline(done: &atomic::AtomicBool, fs: f32, inbuf: buffer::RecvBuf<Vec<Complex32>>, mut outbuf: buffer::SendBuf<Vec<f32>>) {
     let down = 5;
     let samples = buffer::RecvBufIter::new(inbuf);
 
@@ -176,6 +151,10 @@ fn audio_pipeline(done: &atomic::AtomicBool, fs: f32, mut inbuf: buffer::RecvBuf
     let mut lr = demoded.wfm_audio(fs).interleave();
     let fs = fs / 5.0;
 
+    if (fs - 48000.0).abs() > 100.0 {
+        println!("Warning: output sample rate is {}, expected 48000", fs);
+    }
+
     while !done.load(atomic::Ordering::SeqCst) {
         // buffering into outbuf
         let out = outbuf.get();
@@ -193,10 +172,11 @@ fn audio_pipeline(done: &atomic::AtomicBool, fs: f32, mut inbuf: buffer::RecvBuf
     }
 }
 
-fn run_from_sdr(station: f32, fs: f32, done_sig: Arc<atomic::AtomicBool>) {
+fn run_from_sdr(station: f32, done_sig: Arc<atomic::AtomicBool>) {
     let ctx = industrial_io::Context::from_uri("ip:192.168.2.1").unwrap();
     let mut sdr = pluto::PlutoSdr::new(ctx).unwrap();
     let bw: f32 = 6e6;
+    let fs: f32 = 6e6;
 
     sdr.set_center(station).unwrap();
     sdr.set_rf_bandwidth(bw).unwrap();
@@ -274,8 +254,7 @@ fn main() {
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(default_station)
                 * 1e6;
-            let fs = 6e6f32;
-            run_from_sdr(station, fs, done_sig);
+            run_from_sdr(station, done_sig);
         }
     }
 }
