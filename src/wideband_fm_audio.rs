@@ -86,7 +86,7 @@ impl StereoDownmixer {
             -1.96297470,
             0.96364759,
         );
-        let pll = RealPll::new(19e3, fs, 1.0, pll_loop_filt);
+        let pll = RealPll::new(19e3, fs, 0.1, pll_loop_filt);
 
         // 23kHz cutoff, 240kHz sample, butterworth
         let lp_filt1 = Biquad::new(0.65120842, -1.30241684, 0.65120842, -1.17684383, 0.42798985);
@@ -109,4 +109,3 @@ impl StereoDownmixer {
         self.lp_filt2.process(s) * mix
     }
 }
-
