@@ -72,8 +72,7 @@ impl <I> WidebandFmAudioIterable for I where I: Iterator<Item = f32> {
 
 struct StereoDownmixer {
     pll: RealPll<Biquad<f32>>,
-    lp_filt1: Biquad<f32>,
-    lp_filt2: Biquad<f32>,
+    hp_filt: Biquad<f32>,
 }
 
 impl StereoDownmixer {
@@ -89,23 +88,24 @@ impl StereoDownmixer {
         let pll = RealPll::new(19e3, fs, 0.1, pll_loop_filt);
 
         // 23kHz cutoff, 240kHz sample, butterworth
-        let lp_filt1 = Biquad::new(0.65120842, -1.30241684, 0.65120842, -1.17684383, 0.42798985);
-        let lp_filt2 = lp_filt1.clone();
+        let hp_filt = Biquad::new(0.65120842, -1.30241684, 0.65120842, -1.17684383, 0.42798985);
 
         StereoDownmixer {
             pll,
-            lp_filt1,
-            lp_filt2,
+            hp_filt,
         }
     }
 
     fn process(&mut self, s: f32) -> f32 {
+        // pilot extract
         let tone = self.pll.process(s);
-        // square tone, then lowpass to get clean 38 kHz ref
-        let mix = self.lp_filt1.process(tone * tone);
 
-        // lp incoming to kill mono
+        // tone = cos(w)
+        // tone^2 = (1 + cos(2w)) / 2
+        // real tone^2 has DC that we have to kill
+        // otherwise we pass mono combined with stereo downmix
         // mix with incoming to get stereo diff
-        self.lp_filt2.process(s) * mix
+        // multiply by 2 to get back to unity after ^2
+        self.hp_filt.process(tone * tone * 2.0) * s
     }
 }
