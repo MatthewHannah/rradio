@@ -122,7 +122,7 @@ fn audio_pipeline(done: &atomic::AtomicBool, fs: f32, inbuf: buffer::RecvBuf<Vec
     // });
 
     // audio pipeline
-    let filt1 = biquad::Biquad::new(0.02008282, 0.04016564, 0.02008282, -1.56097580, 0.64130708);
+    let filt1 = biquad::Biquad::lowpass(fs, 300000.0, 0.707);
     let filt2 = filt1.clone();
     let filtered = samples.dsp_filter(filt1).dsp_filter(filt2);
     let fs: f32 = fs / (down as f32);
@@ -136,8 +136,8 @@ fn audio_pipeline(done: &atomic::AtomicBool, fs: f32, inbuf: buffer::RecvBuf<Vec
     //     plot_re_im(&audio_samples);
     // });
 
-    let fm_filt = biquad::Biquad::new(0.03357068, 0.06714135, 0.03357068, -1.41893478, 0.55321749);
-    let fm_loop_filt = biquad::Biquad::new(0.03357068, 0.06714135, 0.03357068, -1.41893478, 0.55321749);
+    let fm_filt = biquad::Biquad::lowpass(fs, 80000.0, 0.707);
+    let fm_loop_filt = biquad::Biquad::lowpass(fs, 80000.0, 0.707);
     let demoded = resampled.dsp_filter(fm_filt).fm_demodulate(fm_loop_filt).downsample(down);
     let fs = fs / (down as f32);
 

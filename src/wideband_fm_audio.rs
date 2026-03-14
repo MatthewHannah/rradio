@@ -14,17 +14,13 @@ pub struct WidebandFmAudio<I> {
 
 impl<I> WidebandFmAudio<I> where I: Iterator<Item = f32> {
     fn new(fs: f32, i: I) -> WidebandFmAudio<I> {
-        if (fs - 240000.0).abs() > 1.0 {
-            panic!("Hardcoded filter parameters for 240kHz sample rate");
-        }
-
         WidebandFmAudio {
             input: i,
             downmix: StereoDownmixer::new(fs),
             l_deemph: Deemphasis::new(fs, 75e-6),
             r_deemph: Deemphasis::new(fs, 75e-6),
-            l_audio_filt: Biquad::new(0.04125202, 0.08250404, 0.04125202, -1.34891824, 0.51392633),
-            r_audio_filt: Biquad::new(0.04125202, 0.08250404, 0.04125202, -1.34891824, 0.51392633),
+            l_audio_filt: Biquad::lowpass(fs, 17000.0, 0.707),
+            r_audio_filt: Biquad::lowpass(fs, 17000.0, 0.707),
         }
     }
 
@@ -77,18 +73,10 @@ struct StereoDownmixer {
 
 impl StereoDownmixer {
     fn new(fs: f32) -> Self {
-        // 1kHz cutoff, 240kHz sample, butterworth
-        let pll_loop_filt = Biquad::new(
-            1.68223247e-4,
-            3.36446494e-4,
-            1.68223247e-4,
-            -1.96297470,
-            0.96364759,
-        );
+        let pll_loop_filt = Biquad::lowpass(fs, 1000.0, 0.707);
         let pll = RealPll::new(19e3, fs, 0.1, pll_loop_filt);
 
-        // 23kHz cutoff, 240kHz sample, butterworth
-        let hp_filt = Biquad::new(0.65120842, -1.30241684, 0.65120842, -1.17684383, 0.42798985);
+        let hp_filt = Biquad::highpass(fs, 23000.0, 0.707);
 
         StereoDownmixer {
             pll,
