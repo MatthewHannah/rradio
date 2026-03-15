@@ -1,8 +1,16 @@
 use industrial_io as iio;
 use num_complex::Complex32;
 
-static PLUTO_SDR_STREAM_SIZE: usize = 1024 * 1024;
+static PLUTO_SDR_STREAM_SIZE: usize = 256 * 1024;
 static PLUTO_SDR_SCALE: f32 = 4096.0;
+
+#[derive(Clone)]
+pub struct SdrConfig {
+    pub uri: String,
+    pub station: f32,
+    pub bw: f32,
+    pub fs: f32,
+}
 
 pub struct PlutoSdr {
     adc: iio::Device,
@@ -22,6 +30,17 @@ impl PlutoSdr {
         let phy = ctx.find_device("ad9361-phy")?;
 
         Some(PlutoSdr { adc, phy, streaming: false })
+    }
+
+    /// Create a fully configured PlutoSdr from a config, ready to stream.
+    pub fn connect(config: &SdrConfig) -> Result<PlutoSdr, iio::Error> {
+        let ctx = iio::Context::from_uri(&config.uri)?;
+        let sdr = PlutoSdr::new(ctx)
+            .ok_or_else(|| iio::Error::General("Failed to find AD9361 devices".to_string()))?;
+        sdr.set_center(config.station)?;
+        sdr.set_rf_bandwidth(config.bw)?;
+        sdr.set_sampling_freq(config.fs)?;
+        Ok(sdr)
     }
 
     pub fn set_center(&self, center: f32) -> Result<(), iio::Error> {
@@ -62,11 +81,10 @@ impl PlutoSdr {
         rx_chan_i.enable();
         rx_chan_q.enable();
 
-        // this has to be 1024*1024 otherwise you drop samples and distort phases
         let rx_buf = self
             .adc
             .create_buffer(PLUTO_SDR_STREAM_SIZE, false)
-            .inspect_err(|e| println!("failed to create buffer {:?}", e))?;
+            .inspect_err(|e| eprintln!("failed to create buffer {:?}", e))?;
 
         self.streaming = true;
 
@@ -87,9 +105,7 @@ impl PlutoSdr {
 
 impl PlutoSdrIqStreamer {
     pub fn collect_iq(&mut self, data: &mut Vec<Complex32>) -> Result<(), iio::Error> {
-        self.rx_buf
-            .refill()
-            .inspect_err(|e| println!("refill failed {:?}", e))?;
+        self.rx_buf.refill()?;
 
         // need to enforce i16 here or else it will interpret bag of bytes incorrectly
         let i_it = self.rx_buf.channel_iter::<i16>(&self.rx_chan_i);

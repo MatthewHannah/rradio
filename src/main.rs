@@ -13,7 +13,6 @@ mod wideband_fm_audio;
 mod pluto;
 mod buffer;
 
-use std::fs;
 use std::sync::atomic;
 use std::sync::Arc;
 
@@ -24,7 +23,7 @@ use rustfft::{num_traits::Zero, FftPlanner};
 use crate::filterable::FilterableIter;
 use crate::fm_demod::FmDemodulatable;
 use crate::interleaver::InterleaveableIter;
-use crate::pluto::PlutoSdrIqStreamer;
+use crate::pluto::SdrConfig;
 use crate::resample::Downsampleable;
 use crate::spy::SpyableIter;
 use crate::wideband_fm_audio::WidebandFmAudioIterable;
@@ -85,12 +84,63 @@ fn plot_re_im(samples: &[Complex32]) {
     plot.show();
 }
 
-fn buffer_iq(done: &atomic::AtomicBool, streamer: &mut PlutoSdrIqStreamer, mut out: buffer::SendBuf<Vec<Complex32>>) {
+fn buffer_iq(done: &atomic::AtomicBool, config: &SdrConfig, mut out: buffer::SendBuf<Vec<Complex32>>) {
+    const MAX_RETRIES: u32 = 3;
+
     while !done.load(atomic::Ordering::SeqCst) {
-        if let Some(mut buf) = out.get() {
-            if let Ok(()) = streamer.collect_iq(&mut buf) {
-                out.commit(buf);
+        // (Re)connect and configure SDR
+        let mut sdr = match pluto::PlutoSdr::connect(config) {
+            Ok(sdr) => {
+                eprintln!("SDR connected");
+                sdr
             }
+            Err(e) => {
+                eprintln!("SDR connect failed: {:?}, retrying in 1s...", e);
+                std::thread::sleep(std::time::Duration::from_secs(1));
+                continue;
+            }
+        };
+
+        let mut streamer = match sdr.start_iq() {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("SDR start_iq failed: {:?}, retrying in 1s...", e);
+                std::thread::sleep(std::time::Duration::from_secs(1));
+                continue;
+            }
+        };
+
+        // Stream until error or shutdown
+        let mut consecutive_errors: u32 = 0;
+        while !done.load(atomic::Ordering::SeqCst) {
+            if let Some(mut buf) = out.get() {
+                match streamer.collect_iq(&mut buf) {
+                    Ok(()) => {
+                        consecutive_errors = 0;
+                        out.commit(buf);
+                    }
+                    Err(e) => {
+                        consecutive_errors += 1;
+                        if consecutive_errors >= MAX_RETRIES {
+                            eprintln!("SDR error: {:?} ({} consecutive failures), reconnecting...", e, consecutive_errors);
+                            break;
+                        }
+                        eprintln!("SDR error: {:?} (attempt {}/{})", e, consecutive_errors, MAX_RETRIES);
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                    }
+                }
+            } else {
+                // SendBuf returned None — receiver is gone
+                return;
+            }
+        }
+
+        // Tear down before reconnecting
+        sdr.stop_iq(streamer);
+
+        if !done.load(atomic::Ordering::SeqCst) {
+            eprintln!("SDR connection lost, reconnecting in 1s...");
+            std::thread::sleep(std::time::Duration::from_secs(1));
         }
     }
 }
@@ -111,7 +161,7 @@ fn buffer_sigmf(done: &atomic::AtomicBool, mut streamer: sigmf::SigmfStreamer, m
 }
 
 fn audio_pipeline(done: &atomic::AtomicBool, fs: f32, inbuf: buffer::RecvBuf<Vec<Complex32>>, mut outbuf: buffer::SendBuf<Vec<f32>>) {
-    let down = 5;
+    let down = 2;
     let samples = buffer::RecvBufIter::new(inbuf);
 
     // let fs_spy = fs;
@@ -138,6 +188,7 @@ fn audio_pipeline(done: &atomic::AtomicBool, fs: f32, inbuf: buffer::RecvBuf<Vec
 
     let fm_filt = biquad::Biquad::lowpass(fs, 80000.0, 0.707);
     let fm_loop_filt = biquad::Biquad::lowpass(fs, 80000.0, 0.707);
+    let down = 5;
     let demoded = resampled.dsp_filter(fm_filt).fm_demodulate(fm_loop_filt).downsample(down);
     let fs = fs / (down as f32);
 
@@ -173,23 +224,21 @@ fn audio_pipeline(done: &atomic::AtomicBool, fs: f32, inbuf: buffer::RecvBuf<Vec
 }
 
 fn run_from_sdr(station: f32, done_sig: Arc<atomic::AtomicBool>) {
-    let ctx = industrial_io::Context::from_uri("ip:192.168.2.1").unwrap();
-    let mut sdr = pluto::PlutoSdr::new(ctx).unwrap();
-    let bw: f32 = 6e6;
-    let fs: f32 = 6e6;
-
-    sdr.set_center(station).unwrap();
-    sdr.set_rf_bandwidth(bw).unwrap();
-    sdr.set_sampling_freq(fs).unwrap();
+    let config = SdrConfig {
+        uri: "ip:192.168.2.1".to_string(),
+        station,
+        bw: 600e6,
+        fs: 2.4e6,
+    };
+    let fs = config.fs;
 
     let (iq_tx, iq_rx) = buffer::buf_pair(8);
     let (audio_tx, audio_rx) = buffer::buf_pair(8);
 
     let done_ref = done_sig.clone();
+    let iq_config = config.clone();
     let iq_thread = std::thread::spawn(move || {
-        let mut iq_streamer = sdr.start_iq().unwrap();
-        buffer_iq(&done_ref, &mut iq_streamer, iq_tx);
-        sdr.stop_iq(iq_streamer);
+        buffer_iq(&done_ref, &iq_config, iq_tx);
     });
 
     let done_ref = done_sig.clone();
