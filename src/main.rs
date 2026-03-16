@@ -205,9 +205,9 @@ fn buffer_soapy(done: &atomic::AtomicBool, config: &soapy::SoapyConfig, mut out:
     }
 }
 
-fn buffer_sigmf(done: &atomic::AtomicBool, mut streamer: sigmf::SigmfStreamer, mut out: buffer::SendBuf<Vec<Complex32>>, tune_offset: f32) {
+fn buffer_sigmf(done: &atomic::AtomicBool, mut streamer: sigmf::SigmfStreamer, mut out: buffer::SendBuf<Vec<Complex32>>, tune_offset: f32, fs: f32) {
     const CHUNK: usize = 4*1024*1024;
-    let mut osc = osc::Osc::new(tune_offset, 6e6);
+    let mut osc = osc::Osc::new(tune_offset, fs);
     while !done.load(atomic::Ordering::SeqCst) {
         if let Some(mut buf) = out.get() {
             buf.clear();
@@ -330,12 +330,12 @@ fn run_from_soapy(filter: &str, station: f32, done_sig: Arc<atomic::AtomicBool>,
         filter: filter.to_string(),
         station,
         bw: 600e6,
-        fs: 1.2e6,
+        fs: 2.4e6,
     };
     let fs = config.fs;
 
     let settings = AudioPipelineSettings {
-        iq_downsample: 1,
+        iq_downsample: 2,
         fm_demod_downsample: 5,
         audio_downsample: 5,
     };
@@ -366,23 +366,34 @@ fn run_from_soapy(filter: &str, station: f32, done_sig: Arc<atomic::AtomicBool>,
 
 fn run_from_sigmf(path: &str, done_sig: Arc<atomic::AtomicBool>, obs_settings: AudioPipelineObservationSettings) {
     let streamer = sigmf::SigmfStreamer::new(path).expect("Failed to open SigMF file");
+    let fs = streamer.sample_rate();
 
-    let fs = 6e6;
+    let total_downsample = fs / 48000.0;
+    let total_downsample_int = total_downsample.round() as usize;
+    if (total_downsample - total_downsample_int as f32).abs() > 0.5 {
+        panic!("Sample rate {} does not divide evenly to 48 kHz (ratio {})", fs, total_downsample);
+    }
+    if total_downsample_int % 25 != 0 {
+        panic!("Sample rate {} requires total downsample of {} which is not divisible by 25", fs, total_downsample_int);
+    }
+    let iq_downsample = total_downsample_int / 25;
+    if iq_downsample == 0 {
+        panic!("Sample rate {} is too low for this pipeline (need at least 1.2 MHz)", fs);
+    }
+
     let settings = AudioPipelineSettings {
-        iq_downsample: 2,
+        iq_downsample,
         fm_demod_downsample: 5,
         audio_downsample: 5,
     };
-    if (fs / settings.iq_downsample as f32) / (settings.fm_demod_downsample as f32) / (settings.audio_downsample as f32) - 48000.0 > 100.0 {
-        println!("Warning: output sample rate is {}, expected 48000", (fs / settings.iq_downsample as f32) / settings.fm_demod_downsample as f32 / settings.audio_downsample as f32);
-    }
+    println!("SigMF: fs={} Hz, datatype from metadata, downsample={}/{}/{}", fs, iq_downsample, 5, 5);
 
     let (iq_tx, iq_rx) = buffer::buf_pair(8);
     let (audio_tx, audio_rx) = buffer::buf_pair(8);
 
     let done_ref = done_sig.clone();
     let iq_thread = std::thread::spawn(move || {
-        buffer_sigmf(&done_ref, streamer, iq_tx, 400e3);
+        buffer_sigmf(&done_ref, streamer, iq_tx, 400e3, fs);
     });
 
     let done_ref = done_sig.clone();

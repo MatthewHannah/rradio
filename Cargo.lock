@@ -941,6 +941,8 @@ dependencies = [
  "num-traits",
  "plotly",
  "rustfft",
+ "serde",
+ "serde_json",
  "soapysdr",
 ]
 
