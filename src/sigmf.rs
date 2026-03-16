@@ -7,6 +7,16 @@ pub enum SigmfError {
     BadFile(String),
 }
 
+impl std::fmt::Display for SigmfError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SigmfError::BadFile(msg) => write!(f, "bad file: {}", msg),
+        }
+    }
+}
+
+impl std::error::Error for SigmfError {}
+
 
 // definitely needs to be not hardcoded to ci32_le
 // and to look at metadata

@@ -80,6 +80,7 @@ pub fn playback_iter<I>(mut samples: I, fs: u32) where
     playback(fs, data_fn, err_fn, stop_fn);
 }
 
+#[allow(dead_code)]
 pub fn playback_buffer(samples: Vec<f32>, fs: u32) {
     playback_iter(samples.into_iter(), fs);
 }

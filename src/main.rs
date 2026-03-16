@@ -160,51 +160,55 @@ fn buffer_sigmf(done: &atomic::AtomicBool, mut streamer: sigmf::SigmfStreamer, m
     }
 }
 
-fn audio_pipeline(done: &atomic::AtomicBool, fs: f32, inbuf: buffer::RecvBuf<Vec<Complex32>>, mut outbuf: buffer::SendBuf<Vec<f32>>) {
-    let down = 2;
+struct AudioPipelineObservationSettings {
+    spy_iq: bool,
+    spy_demoded: bool,
+    spy_audio: bool,
+}
+
+struct AudioPipelineSettings {
+    iq_downsample: usize,
+    fm_demod_downsample: usize,
+    audio_downsample: usize,
+}
+
+fn audio_pipeline(done: &atomic::AtomicBool, fs: f32, inbuf: buffer::RecvBuf<Vec<Complex32>>, mut outbuf: buffer::SendBuf<Vec<f32>>, settings: AudioPipelineSettings, obs_settings: AudioPipelineObservationSettings) {
     let samples = buffer::RecvBufIter::new(inbuf);
 
-    // let fs_spy = fs;
-    // let samples = samples.spy(6000000, move |iq_samples| {
-    //     println!("Got {} IQ samples for spectrogram", iq_samples.len());
-    //     spectrogram(8192, 512, fs_spy, &iq_samples);
-    //     plot_re_im(&iq_samples);
-    // });
+    let fs_spy = fs;
+    let samples = samples.maybe_spy(6000000, move |iq_samples| {
+        println!("Got {} IQ samples for spectrogram", iq_samples.len());
+        spectrogram(8192, 512, fs_spy, &iq_samples);
+        plot_re_im(&iq_samples);
+    }, obs_settings.spy_iq);
 
     // audio pipeline
     let filt1 = biquad::Biquad::lowpass(fs, 300000.0, 0.707);
     let filt2 = filt1.clone();
     let filtered = samples.dsp_filter(filt1).dsp_filter(filt2);
-    let fs: f32 = fs / (down as f32);
-    let resampled = filtered.downsample(down);
+    let fs: f32 = fs / (settings.iq_downsample as f32);
+    let resampled = filtered.downsample(settings.iq_downsample);
 
-    // // add in a spy here to see the demodulated audio spectrum
-    // let fs_spy = fs;
-    // let resampled = resampled.spy(6000000, move |audio_samples| {
-    //     println!("Got {} audio samples for spectrogram", audio_samples.len());
-    //     spectrogram(8192, 512, fs_spy, &audio_samples);
-    //     plot_re_im(&audio_samples);
-    // });
+    let fs_spy = fs;
+    let resampled = resampled.maybe_spy(6000000, move |audio_samples| {
+        println!("Got {} audio samples for spectrogram", audio_samples.len());
+        spectrogram(8192, 512, fs_spy, &audio_samples);
+        plot_re_im(&audio_samples);
+    }, obs_settings.spy_audio);
 
     let fm_filt = biquad::Biquad::lowpass(fs, 80000.0, 0.707);
     let fm_loop_filt = biquad::Biquad::lowpass(fs, 80000.0, 0.707);
-    let down = 5;
-    let demoded = resampled.dsp_filter(fm_filt).fm_demodulate(fm_loop_filt).downsample(down);
-    let fs = fs / (down as f32);
+    let demoded = resampled.dsp_filter(fm_filt).fm_demodulate(fm_loop_filt).downsample(settings.fm_demod_downsample);
+    let fs = fs / (settings.fm_demod_downsample as f32);
 
-    // // add in a spy here to see the demodulated audio spectrum
-    // let fs_spy = fs;
-    // let demoded = demoded.spy(48000, move |audio_samples| {
-    //     println!("Got {} audio samples for spectrogram", audio_samples.len());
-    //     spectrogram(1024, 512, fs_spy, &audio_samples);
-    // });
+    let fs_spy = fs;
+    let demoded = demoded.maybe_spy(48000, move |audio_samples| {
+        println!("Got {} audio samples for spectrogram", audio_samples.len());
+        spectrogram(1024, 512, fs_spy, &audio_samples);
+    }, obs_settings.spy_demoded);
 
     let mut lr = demoded.wfm_audio(fs).interleave();
-    let fs = fs / 5.0;
-
-    if (fs - 48000.0).abs() > 100.0 {
-        println!("Warning: output sample rate is {}, expected 48000", fs);
-    }
+    let fs = fs / settings.audio_downsample as f32;
 
     while !done.load(atomic::Ordering::SeqCst) {
         // buffering into outbuf
@@ -223,7 +227,7 @@ fn audio_pipeline(done: &atomic::AtomicBool, fs: f32, inbuf: buffer::RecvBuf<Vec
     }
 }
 
-fn run_from_sdr(station: f32, done_sig: Arc<atomic::AtomicBool>) {
+fn run_from_sdr(station: f32, done_sig: Arc<atomic::AtomicBool>, obs_settings: AudioPipelineObservationSettings) {
     let config = SdrConfig {
         uri: "ip:192.168.2.1".to_string(),
         station,
@@ -231,6 +235,15 @@ fn run_from_sdr(station: f32, done_sig: Arc<atomic::AtomicBool>) {
         fs: 2.4e6,
     };
     let fs = config.fs;
+
+    let settings = AudioPipelineSettings {
+        iq_downsample: 2,
+        fm_demod_downsample: 5,
+        audio_downsample: 5,
+    };
+    if (fs / settings.iq_downsample as f32) / (settings.fm_demod_downsample as f32) / (settings.audio_downsample as f32) - 48000.0 > 100.0 {
+        println!("Warning: output sample rate is {}, expected 48000", (fs / settings.iq_downsample as f32) / settings.fm_demod_downsample as f32 / settings.audio_downsample as f32);
+    }
 
     let (iq_tx, iq_rx) = buffer::buf_pair(8);
     let (audio_tx, audio_rx) = buffer::buf_pair(8);
@@ -243,7 +256,7 @@ fn run_from_sdr(station: f32, done_sig: Arc<atomic::AtomicBool>) {
 
     let done_ref = done_sig.clone();
     let audio_thread = std::thread::spawn(move || {
-        audio_pipeline(&done_ref, fs, iq_rx, audio_tx);
+        audio_pipeline(&done_ref, fs, iq_rx, audio_tx, settings, obs_settings);
     });
 
     let audio_rx_iter = buffer::RecvBufIter::new(audio_rx);
@@ -253,8 +266,18 @@ fn run_from_sdr(station: f32, done_sig: Arc<atomic::AtomicBool>) {
     audio_thread.join().unwrap();
 }
 
-fn run_from_sigmf(path: &str, fs: f32, done_sig: Arc<atomic::AtomicBool>) {
+fn run_from_sigmf(path: &str, done_sig: Arc<atomic::AtomicBool>, obs_settings: AudioPipelineObservationSettings) {
     let streamer = sigmf::SigmfStreamer::new(path).expect("Failed to open SigMF file");
+
+    let fs = 6e6;
+    let settings = AudioPipelineSettings {
+        iq_downsample: 2,
+        fm_demod_downsample: 5,
+        audio_downsample: 5,
+    };
+    if (fs / settings.iq_downsample as f32) / (settings.fm_demod_downsample as f32) / (settings.audio_downsample as f32) - 48000.0 > 100.0 {
+        println!("Warning: output sample rate is {}, expected 48000", (fs / settings.iq_downsample as f32) / settings.fm_demod_downsample as f32 / settings.audio_downsample as f32);
+    }
 
     let (iq_tx, iq_rx) = buffer::buf_pair(8);
     let (audio_tx, audio_rx) = buffer::buf_pair(8);
@@ -266,7 +289,7 @@ fn run_from_sigmf(path: &str, fs: f32, done_sig: Arc<atomic::AtomicBool>) {
 
     let done_ref = done_sig.clone();
     let audio_thread = std::thread::spawn(move || {
-        audio_pipeline(&done_ref, fs, iq_rx, audio_tx);
+        audio_pipeline(&done_ref, fs, iq_rx, audio_tx, settings, obs_settings);
     });
 
     let audio_rx_iter = buffer::RecvBufIter::new(audio_rx);
@@ -289,13 +312,16 @@ fn main() {
         done_ref.store(true, atomic::Ordering::SeqCst);
     }).expect("Error setting CTRL-C handler");
 
+    let settings = AudioPipelineObservationSettings {
+        spy_iq: false,
+        spy_demoded: false,
+        spy_audio: false,
+    };
+
     match args.next().as_deref() {
         Some("sigmf") => {
             let path = args.next().expect("Usage: rradio sigmf <path> [fs_mhz]");
-            let fs: f32 = args.next()
-                .map(|x| x.parse().expect("Invalid sample rate"))
-                .unwrap_or(6e6);
-            run_from_sigmf(&path, fs, done_sig);
+            run_from_sigmf(&path, done_sig, settings);
         }
         station_arg => {
             let default_station = 96.1;
@@ -303,7 +329,7 @@ fn main() {
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(default_station)
                 * 1e6;
-            run_from_sdr(station, done_sig);
+            run_from_sdr(station, done_sig, settings);
         }
     }
 }

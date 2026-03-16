@@ -34,6 +34,7 @@ impl <I> Iterator for SpyIter<I> where I: Iterator, I::Item: Copy {
 }
 
 pub trait SpyableIter: Iterator + Sized {
+    #[allow(dead_code)]
     fn spy<T>(self, count: usize, callback: T) -> SpyIter<Self> where T: FnOnce(Vec<Self::Item>) + 'static + Send, Self::Item: Copy {
         SpyIter {
             iter: self,
@@ -41,6 +42,19 @@ pub trait SpyableIter: Iterator + Sized {
             done: false,
             buf: Vec::with_capacity(count),
             callback: Some(Box::new(callback)),
+        }
+    }
+
+    fn maybe_spy<T>(self, count: usize, callback: T, enable: bool) -> SpyIter<Self> where T: FnOnce(Vec<Self::Item>) + 'static + Send, Self::Item: Copy {
+        SpyIter {
+            iter: self,
+            count,
+            done: false,
+            buf: Vec::with_capacity(count),
+            callback: match enable {
+                true => Some(Box::new(callback)),
+                false => None,
+            },
         }
     }
 }

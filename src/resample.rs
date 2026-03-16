@@ -30,6 +30,7 @@ impl<I, T> Iterator for Upsample<I, T> where I: Iterator<Item = T>, T: Copy + Ze
     }
 }
 
+#[allow(dead_code)]
 pub trait Upsampleable<T> {
     fn upsample(self, factor: usize) -> Upsample<Self, T> where Self: Sized + Iterator<Item = T>, T: Copy + Zero;
 }
