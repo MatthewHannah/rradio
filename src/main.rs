@@ -24,7 +24,6 @@ use rustfft::{num_traits::Zero, FftPlanner};
 use crate::filterable::FilterableIter;
 use crate::fm_demod::FmDemodulatable;
 use crate::interleaver::InterleaveableIter;
-use crate::pluto::SdrConfig;
 use crate::resample::Downsampleable;
 use crate::spy::SpyableIter;
 use crate::wideband_fm_audio::WidebandFmAudioIterable;
@@ -85,7 +84,7 @@ fn plot_re_im(samples: &[Complex32]) {
     plot.show();
 }
 
-fn buffer_iq(done: &atomic::AtomicBool, config: &SdrConfig, mut out: buffer::SendBuf<Vec<Complex32>>) {
+fn buffer_pluto(done: &atomic::AtomicBool, config: &pluto::SdrConfig, mut out: buffer::SendBuf<Vec<Complex32>>) {
     const MAX_RETRIES: u32 = 3;
 
     while !done.load(atomic::Ordering::SeqCst) {
@@ -286,88 +285,7 @@ fn audio_pipeline(done: &atomic::AtomicBool, fs: f32, inbuf: buffer::RecvBuf<Vec
     }
 }
 
-fn run_from_sdr(station: f32, done_sig: Arc<atomic::AtomicBool>, obs_settings: AudioPipelineObservationSettings) {
-    let config = SdrConfig {
-        uri: "ip:192.168.2.1".to_string(),
-        station,
-        bw: 600e6,
-        fs: 2.4e6,
-    };
-    let fs = config.fs;
-
-    let settings = AudioPipelineSettings {
-        iq_downsample: 2,
-        fm_demod_downsample: 5,
-        audio_downsample: 5,
-    };
-    if (fs / settings.iq_downsample as f32) / (settings.fm_demod_downsample as f32) / (settings.audio_downsample as f32) - 48000.0 > 100.0 {
-        println!("Warning: output sample rate is {}, expected 48000", (fs / settings.iq_downsample as f32) / settings.fm_demod_downsample as f32 / settings.audio_downsample as f32);
-    }
-
-    let (iq_tx, iq_rx) = buffer::buf_pair(8);
-    let (audio_tx, audio_rx) = buffer::buf_pair(8);
-
-    let done_ref = done_sig.clone();
-    let iq_config = config.clone();
-    let iq_thread = std::thread::spawn(move || {
-        buffer_iq(&done_ref, &iq_config, iq_tx);
-    });
-
-    let done_ref = done_sig.clone();
-    let audio_thread = std::thread::spawn(move || {
-        audio_pipeline(&done_ref, fs, iq_rx, audio_tx, settings, obs_settings);
-    });
-
-    let audio_rx_iter = buffer::RecvBufIter::new(audio_rx);
-    playback::playback_iter(audio_rx_iter, 48000);
-
-    iq_thread.join().unwrap();
-    audio_thread.join().unwrap();
-}
-
-fn run_from_soapy(filter: &str, station: f32, done_sig: Arc<atomic::AtomicBool>, obs_settings: AudioPipelineObservationSettings) {
-    let config = soapy::SoapyConfig {
-        filter: filter.to_string(),
-        station,
-        bw: 600e6,
-        fs: 2.4e6,
-    };
-    let fs = config.fs;
-
-    let settings = AudioPipelineSettings {
-        iq_downsample: 2,
-        fm_demod_downsample: 5,
-        audio_downsample: 5,
-    };
-    if (fs / settings.iq_downsample as f32) / (settings.fm_demod_downsample as f32) / (settings.audio_downsample as f32) - 48000.0 > 100.0 {
-        println!("Warning: output sample rate is {}, expected 48000", (fs / settings.iq_downsample as f32) / settings.fm_demod_downsample as f32 / settings.audio_downsample as f32);
-    }
-
-    let (iq_tx, iq_rx) = buffer::buf_pair(8);
-    let (audio_tx, audio_rx) = buffer::buf_pair(8);
-
-    let done_ref = done_sig.clone();
-    let iq_config = config.clone();
-    let iq_thread = std::thread::spawn(move || {
-        buffer_soapy(&done_ref, &iq_config, iq_tx);
-    });
-
-    let done_ref = done_sig.clone();
-    let audio_thread = std::thread::spawn(move || {
-        audio_pipeline(&done_ref, fs, iq_rx, audio_tx, settings, obs_settings);
-    });
-
-    let audio_rx_iter = buffer::RecvBufIter::new(audio_rx);
-    playback::playback_iter(audio_rx_iter, 48000);
-
-    iq_thread.join().unwrap();
-    audio_thread.join().unwrap();
-}
-
-fn run_from_sigmf(path: &str, done_sig: Arc<atomic::AtomicBool>, obs_settings: AudioPipelineObservationSettings) {
-    let streamer = sigmf::SigmfStreamer::new(path).expect("Failed to open SigMF file");
-    let fs = streamer.sample_rate();
-
+fn compute_pipeline_settings(fs: f32) -> AudioPipelineSettings {
     let total_downsample = fs / 48000.0;
     let total_downsample_int = total_downsample.round() as usize;
     if (total_downsample - total_downsample_int as f32).abs() > 0.5 {
@@ -380,20 +298,63 @@ fn run_from_sigmf(path: &str, done_sig: Arc<atomic::AtomicBool>, obs_settings: A
     if iq_downsample == 0 {
         panic!("Sample rate {} is too low for this pipeline (need at least 1.2 MHz)", fs);
     }
-
-    let settings = AudioPipelineSettings {
+    AudioPipelineSettings {
         iq_downsample,
         fm_demod_downsample: 5,
         audio_downsample: 5,
+    }
+}
+
+enum IqSource {
+    Pluto { config: pluto::SdrConfig },
+    Soapy { config: soapy::SoapyConfig },
+    Sigmf { streamer: sigmf::SigmfStreamer, tune_offset: f32 },
+}
+
+enum AudioOutput {
+    Playback,
+    Wav(String),
+}
+
+fn write_wav<I>(samples: I, path: &str, fs: u32) where I: Iterator<Item = f32> {
+    let spec = hound::WavSpec {
+        channels: 2,
+        sample_rate: fs,
+        bits_per_sample: 32,
+        sample_format: hound::SampleFormat::Float,
     };
-    println!("SigMF: fs={} Hz, datatype from metadata, downsample={}/{}/{}", fs, iq_downsample, 5, 5);
+    let mut writer = hound::WavWriter::create(path, spec)
+        .unwrap_or_else(|e| panic!("Failed to create WAV file {}: {}", path, e));
+
+    let mut count: u64 = 0;
+    for sample in samples {
+        writer.write_sample(sample).expect("Failed to write WAV sample");
+        count += 1;
+    }
+    writer.finalize().expect("Failed to finalize WAV file");
+    eprintln!("Wrote {} samples ({:.1}s) to {}", count, count as f64 / (fs as f64 * 2.0), path);
+}
+
+fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::AtomicBool>, obs_settings: AudioPipelineObservationSettings) {
+    let fs = match &iq_source {
+        IqSource::Pluto { config } => config.fs,
+        IqSource::Soapy { config } => config.fs,
+        IqSource::Sigmf { streamer, .. } => streamer.sample_rate(),
+    };
+
+    let settings = compute_pipeline_settings(fs);
+    eprintln!("Pipeline: fs={} Hz, downsample={}/{}/{}", fs, settings.iq_downsample, 5, 5);
 
     let (iq_tx, iq_rx) = buffer::buf_pair(8);
     let (audio_tx, audio_rx) = buffer::buf_pair(8);
 
     let done_ref = done_sig.clone();
     let iq_thread = std::thread::spawn(move || {
-        buffer_sigmf(&done_ref, streamer, iq_tx, 400e3, fs);
+        match iq_source {
+            IqSource::Pluto { config } => buffer_pluto(&done_ref, &config, iq_tx),
+            IqSource::Soapy { config } => buffer_soapy(&done_ref, &config, iq_tx),
+            IqSource::Sigmf { streamer, tune_offset } => buffer_sigmf(&done_ref, streamer, iq_tx, tune_offset, fs),
+        }
     });
 
     let done_ref = done_sig.clone();
@@ -402,9 +363,14 @@ fn run_from_sigmf(path: &str, done_sig: Arc<atomic::AtomicBool>, obs_settings: A
     });
 
     let audio_rx_iter = buffer::RecvBufIter::new(audio_rx);
-    // let audio_samples: Vec<f32> = audio_rx_iter.take(48000 * 10).collect();
-    // playback::playback_buffer(audio_samples, 48000);
-    playback::playback_iter(audio_rx_iter, 48000);
+    match audio_output {
+        AudioOutput::Playback => {
+            playback::playback_iter(audio_rx_iter, 48000);
+        }
+        AudioOutput::Wav(path) => {
+            write_wav(audio_rx_iter, &path, 48000);
+        }
+    }
     done_sig.store(true, atomic::Ordering::SeqCst);
 
     iq_thread.join().unwrap();
@@ -412,7 +378,7 @@ fn run_from_sigmf(path: &str, done_sig: Arc<atomic::AtomicBool>, obs_settings: A
 }
 
 fn main() {
-    let mut args = std::env::args().skip(1);
+    let args: Vec<String> = std::env::args().skip(1).collect();
 
     let done_sig = Arc::new(atomic::AtomicBool::new(false));
 
@@ -421,33 +387,76 @@ fn main() {
         done_ref.store(true, atomic::Ordering::SeqCst);
     }).expect("Error setting CTRL-C handler");
 
-    let settings = AudioPipelineObservationSettings {
+    let obs_settings = AudioPipelineObservationSettings {
         spy_iq: false,
         spy_demoded: false,
         spy_audio: false,
     };
 
-    match args.next().as_deref() {
+    // Extract -- args
+    let mut positional = Vec::new();
+    let mut wav_path: Option<String> = None;
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "--wav" {
+            wav_path = Some(args.get(i + 1).expect("Usage: --wav <path>").clone());
+            i += 2;
+        } else {
+            positional.push(args[i].clone());
+            i += 1;
+        }
+    }
+
+    let audio_output = match wav_path {
+        Some(path) => AudioOutput::Wav(path),
+        None => AudioOutput::Playback,
+    };
+
+    let mut pos = positional.iter().map(|s| s.as_str());
+    match pos.next() {
         Some("sigmf") => {
-            let path = args.next().expect("Usage: rradio sigmf <path>");
-            run_from_sigmf(&path, done_sig, settings);
+            let path = pos.next().expect("Usage: rradio sigmf <path> [tune_offset_khz]");
+            let tune_offset: f32 = pos.next()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0.0)
+                * 1e3;
+            let streamer = sigmf::SigmfStreamer::new(path).expect("Failed to open SigMF file");
+            let source = IqSource::Sigmf { streamer, tune_offset };
+            run(source, audio_output, done_sig, obs_settings);
         }
         Some("soapy") => {
-            let filter = args.next().expect("Usage: rradio soapy <filter> [station_mhz]");
-            let default_station = 96.1;
-            let station: f32 = args.next()
+            let filter = pos.next().expect("Usage: rradio soapy <filter> [station_mhz]");
+            let station: f32 = pos.next()
                 .and_then(|s| s.parse().ok())
-                .unwrap_or(default_station)
+                .unwrap_or(96.1)
                 * 1e6;
-            run_from_soapy(&filter, station, done_sig, settings);
+            let config = soapy::SoapyConfig {
+                filter: filter.to_string(),
+                station,
+                bw: 600e6,
+                fs: 2.4e6,
+            };
+            run(IqSource::Soapy { config }, audio_output, done_sig, obs_settings);
         }
-        station_arg => {
-            let default_station = 96.1;
-            let station: f32 = station_arg
+        Some("pluto") => {
+            let station: f32 = pos.next()
                 .and_then(|s| s.parse().ok())
-                .unwrap_or(default_station)
+                .unwrap_or(96.1)
                 * 1e6;
-            run_from_sdr(station, done_sig, settings);
+            let config = pluto::SdrConfig {
+                uri: "ip:192.168.2.1".to_string(),
+                station,
+                bw: 600e6,
+                fs: 2.4e6,
+            };
+            run(IqSource::Pluto { config }, audio_output, done_sig, obs_settings);
+        }
+        _ => {
+            eprintln!("Usage: rradio <source> [options] [--wav <output.wav>]");
+            eprintln!("  rradio pluto [station_mhz]");
+            eprintln!("  rradio soapy <filter> [station_mhz]");
+            eprintln!("  rradio sigmf <path.sigmf-meta> [tune_offset_khz]");
+            std::process::exit(1);
         }
     }
 }
