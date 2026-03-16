@@ -12,6 +12,7 @@ mod interleaver;
 mod wideband_fm_audio;
 mod pluto;
 mod buffer;
+mod soapy;
 
 use std::sync::atomic;
 use std::sync::Arc;
@@ -145,6 +146,65 @@ fn buffer_iq(done: &atomic::AtomicBool, config: &SdrConfig, mut out: buffer::Sen
     }
 }
 
+fn buffer_soapy(done: &atomic::AtomicBool, config: &soapy::SoapyConfig, mut out: buffer::SendBuf<Vec<Complex32>>) {
+    const MAX_RETRIES: u32 = 3;
+
+    while !done.load(atomic::Ordering::SeqCst) {
+        let sdr = match soapy::SoapySdr::connect(config) {
+            Ok(sdr) => {
+                eprintln!("SoapySDR connected");
+                sdr
+            }
+            Err(e) => {
+                eprintln!("SoapySDR connect failed: {}, retrying in 1s...", e);
+                std::thread::sleep(std::time::Duration::from_secs(1));
+                continue;
+            }
+        };
+
+        let mut streamer = match sdr.start_iq() {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("SoapySDR start_iq failed: {}, retrying in 1s...", e);
+                std::thread::sleep(std::time::Duration::from_secs(1));
+                continue;
+            }
+        };
+
+        let mut consecutive_errors: u32 = 0;
+        while !done.load(atomic::Ordering::SeqCst) {
+            if let Some(mut buf) = out.get() {
+                match streamer.collect_iq(&mut buf) {
+                    Ok(()) => {
+                        consecutive_errors = 0;
+                        out.commit(buf);
+                    }
+                    Err(e) => {
+                        consecutive_errors += 1;
+                        if consecutive_errors >= MAX_RETRIES {
+                            eprintln!("SoapySDR error: {} ({} consecutive failures), reconnecting...", e, consecutive_errors);
+                            break;
+                        }
+                        eprintln!("SoapySDR error: {} (attempt {}/{})", e, consecutive_errors, MAX_RETRIES);
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                    }
+                }
+            } else {
+                return;
+            }
+        }
+
+        if let Err(e) = streamer.deactivate() {
+            eprintln!("SoapySDR deactivate error: {}", e);
+        }
+
+        if !done.load(atomic::Ordering::SeqCst) {
+            eprintln!("SoapySDR connection lost, reconnecting in 1s...");
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
+    }
+}
+
 fn buffer_sigmf(done: &atomic::AtomicBool, mut streamer: sigmf::SigmfStreamer, mut out: buffer::SendBuf<Vec<Complex32>>, tune_offset: f32) {
     const CHUNK: usize = 4*1024*1024;
     let mut osc = osc::Osc::new(tune_offset, 6e6);
@@ -265,6 +325,45 @@ fn run_from_sdr(station: f32, done_sig: Arc<atomic::AtomicBool>, obs_settings: A
     audio_thread.join().unwrap();
 }
 
+fn run_from_soapy(filter: &str, station: f32, done_sig: Arc<atomic::AtomicBool>, obs_settings: AudioPipelineObservationSettings) {
+    let config = soapy::SoapyConfig {
+        filter: filter.to_string(),
+        station,
+        bw: 600e6,
+        fs: 1.2e6,
+    };
+    let fs = config.fs;
+
+    let settings = AudioPipelineSettings {
+        iq_downsample: 1,
+        fm_demod_downsample: 5,
+        audio_downsample: 5,
+    };
+    if (fs / settings.iq_downsample as f32) / (settings.fm_demod_downsample as f32) / (settings.audio_downsample as f32) - 48000.0 > 100.0 {
+        println!("Warning: output sample rate is {}, expected 48000", (fs / settings.iq_downsample as f32) / settings.fm_demod_downsample as f32 / settings.audio_downsample as f32);
+    }
+
+    let (iq_tx, iq_rx) = buffer::buf_pair(8);
+    let (audio_tx, audio_rx) = buffer::buf_pair(8);
+
+    let done_ref = done_sig.clone();
+    let iq_config = config.clone();
+    let iq_thread = std::thread::spawn(move || {
+        buffer_soapy(&done_ref, &iq_config, iq_tx);
+    });
+
+    let done_ref = done_sig.clone();
+    let audio_thread = std::thread::spawn(move || {
+        audio_pipeline(&done_ref, fs, iq_rx, audio_tx, settings, obs_settings);
+    });
+
+    let audio_rx_iter = buffer::RecvBufIter::new(audio_rx);
+    playback::playback_iter(audio_rx_iter, 48000);
+
+    iq_thread.join().unwrap();
+    audio_thread.join().unwrap();
+}
+
 fn run_from_sigmf(path: &str, done_sig: Arc<atomic::AtomicBool>, obs_settings: AudioPipelineObservationSettings) {
     let streamer = sigmf::SigmfStreamer::new(path).expect("Failed to open SigMF file");
 
@@ -319,8 +418,17 @@ fn main() {
 
     match args.next().as_deref() {
         Some("sigmf") => {
-            let path = args.next().expect("Usage: rradio sigmf <path> [fs_mhz]");
+            let path = args.next().expect("Usage: rradio sigmf <path>");
             run_from_sigmf(&path, done_sig, settings);
+        }
+        Some("soapy") => {
+            let filter = args.next().expect("Usage: rradio soapy <filter> [station_mhz]");
+            let default_station = 96.1;
+            let station: f32 = args.next()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(default_station)
+                * 1e6;
+            run_from_soapy(&filter, station, done_sig, settings);
         }
         station_arg => {
             let default_station = 96.1;
