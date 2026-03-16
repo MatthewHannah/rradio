@@ -43,16 +43,8 @@ impl<I> Iterator for WidebandFmAudio<I> where I: Iterator<Item = f32> {
     type Item = (f32, f32);
 
     fn next(&mut self) -> Option<Self::Item> {
-        // in place downsample
-        let init = self.input.next()?;
-        let val = self.process(init);
-        for _ in 0..4 {
-            let next = self.input.next();
-            if next.is_some() {
-                self.process(next?);
-            }
-        }
-        Some(val)
+        let s = self.input.next()?;
+        Some(self.process(s))
     }
 }
 

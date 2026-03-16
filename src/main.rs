@@ -207,8 +207,7 @@ fn audio_pipeline(done: &atomic::AtomicBool, fs: f32, inbuf: buffer::RecvBuf<Vec
         spectrogram(1024, 512, fs_spy, &audio_samples);
     }, obs_settings.spy_demoded);
 
-    let mut lr = demoded.wfm_audio(fs).interleave();
-    let fs = fs / settings.audio_downsample as f32;
+    let mut lr = demoded.wfm_audio(fs).downsample(settings.audio_downsample).interleave();
 
     while !done.load(atomic::Ordering::SeqCst) {
         // buffering into outbuf
