@@ -72,6 +72,27 @@ fn spectrogram<T>(window_size: usize, overlap: usize, fs: f32, samples: &[T]) wh
 }
 
 #[allow(dead_code)]
+fn plot_freq_resp(samples: &[Complex32], fs: f32) {
+    let mut planner = FftPlanner::<f32>::new();
+    let fft = planner.plan_fft_forward(samples.len());
+    let mut holder = vec![Complex32::zero(); samples.len()];
+
+    let mut working: Vec<Complex32> = samples.iter().cloned().collect();
+    fft.process(&mut working);
+    let holder_len = holder.len();
+    holder[holder_len/2..].copy_from_slice(&working[..holder_len/2]);
+    holder[..holder_len/2].copy_from_slice(&working[holder_len/2..]);
+    let magnitudes = holder.iter().map(|s| s.norm().log10() * 20.0).collect::<Vec<_>>();
+
+    let freqs: Vec<f32> = (0..samples.len()).map(|i| i as f32 * fs / samples.len() as f32 - fs / 2.0).collect();
+
+    let mut plot = Plot::new();
+    let trace = Scatter::new(freqs, magnitudes);
+    plot.add_trace(trace);
+    plot.show();
+}
+
+#[allow(dead_code)]
 fn plot_re_im(samples: &[Complex32]) {
     let sample_count: Vec<usize> = (0..samples.len()).collect();
     let r: Vec<f32> = samples.iter().map(|s| s.re).collect();
@@ -236,9 +257,7 @@ fn audio_pipeline(done: &atomic::AtomicBool, fs: f32, inbuf: buffer::RecvBuf<Vec
 
     let fs_spy = fs;
     let samples = samples.maybe_spy(6000000, move |iq_samples| {
-        println!("Got {} IQ samples for spectrogram", iq_samples.len());
         spectrogram(8192, 512, fs_spy, &iq_samples);
-        plot_re_im(&iq_samples);
     }, obs_settings.spy_iq);
 
     // audio pipeline
@@ -250,10 +269,8 @@ fn audio_pipeline(done: &atomic::AtomicBool, fs: f32, inbuf: buffer::RecvBuf<Vec
 
     let fs_spy = fs;
     let resampled = resampled.maybe_spy(6000000, move |audio_samples| {
-        println!("Got {} audio samples for spectrogram", audio_samples.len());
         spectrogram(8192, 512, fs_spy, &audio_samples);
-        plot_re_im(&audio_samples);
-    }, obs_settings.spy_audio);
+    }, obs_settings.spy_iq);
 
     let fm_filt = biquad::Biquad::lowpass(fs, 80000.0, 0.707);
     let fm_loop_filt = biquad::Biquad::lowpass(fs, 80000.0, 0.707);
@@ -262,11 +279,15 @@ fn audio_pipeline(done: &atomic::AtomicBool, fs: f32, inbuf: buffer::RecvBuf<Vec
 
     let fs_spy = fs;
     let demoded = demoded.maybe_spy(48000, move |audio_samples| {
-        println!("Got {} audio samples for spectrogram", audio_samples.len());
         spectrogram(1024, 512, fs_spy, &audio_samples);
     }, obs_settings.spy_demoded);
 
-    let mut lr = demoded.wfm_audio(fs).downsample(settings.audio_downsample).interleave();
+    let fs_spy = fs;
+    let mut lr = demoded.wfm_audio(fs).spy(48000, move |audio_samples| {
+        let rds = audio_samples.iter().map(|fm_out| Complex32::new(fm_out.rds, 0.0)).collect::<Vec<Complex32>>();
+        plot_freq_resp(&rds, fs_spy);
+        plot_re_im(&rds);
+    }).map(|fm_out| (fm_out.left, fm_out.right) ).downsample(settings.audio_downsample).interleave();
 
     while !done.load(atomic::Ordering::SeqCst) {
         // buffering into outbuf
