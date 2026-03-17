@@ -449,24 +449,66 @@ const RDS_MATCHED_FILTER_TAPS: [f32; 129] = [
     6.1299193e-21,
 ];
 
+/// Manchester-shaped RRC matched filter: 144 taps, fs=19000 Hz.
+/// RRC convolved with Manchester waveform — simultaneously matches
+/// the pulse shape and decodes Manchester encoding.
+/// Gardner runs at bit rate (1187.5 Hz), 16 samples per bit.
+const RDS_MANCHESTER_RRC_TAPS: [f32; 144] = [
+    7.2474601e-22, -8.2718543e-09, -8.2718543e-09, 7.1691648e-08,
+    2.8073824e-07, 5.2141842e-07, 5.2141842e-07, 5.9854433e-09,
+    -9.9214536e-07, -1.9137999e-06, -1.9137999e-06, -5.1969281e-07,
+    1.8228700e-06, 3.7631296e-06, 3.7631296e-06, 1.1776385e-06,
+    -2.9998096e-06, -6.3659107e-06, -6.3659107e-06, -1.9973280e-06,
+    5.0344972e-06, 1.0688979e-05, 1.0688979e-05, 3.3974090e-06,
+    -8.2954689e-06, -1.7662551e-05, -1.7662551e-05, -5.6667933e-06,
+    1.3515240e-05, 2.8847070e-05, 2.8847070e-05, 9.2599043e-06,
+    -2.2062263e-05, -4.7121497e-05, -4.7121497e-05, -1.4946323e-05,
+    3.6722284e-05, 7.8285294e-05, 7.8285294e-05, 2.4115199e-05,
+    -6.3723841e-05, -1.3519068e-04, -1.3519068e-04, -3.9379594e-05,
+    1.1867613e-04, 2.4980637e-04, 2.4980637e-04, 6.5536121e-05,
+    -2.4715232e-04, -5.1499920e-04, -5.1499920e-04, -1.0820218e-04,
+    6.1568513e-04, 1.2708382e-03, 1.2708382e-03, 1.2498633e-04,
+    -2.1129433e-03, -4.3878848e-03, -4.3878848e-03, 1.3056036e-03,
+    1.6549478e-02, 4.4507293e-02, 8.6301347e-02, 1.3984590e-01,
+    1.9929977e-01, 2.5547102e-01, 2.9726507e-01, 3.1395301e-01,
+    2.9774676e-01, 2.4600388e-01, 1.6241577e-01, 5.6767221e-02,
+    -5.6767221e-02, -1.6241577e-01, -2.4600388e-01, -2.9774676e-01,
+    -3.1395301e-01, -2.9726507e-01, -2.5547102e-01, -1.9929977e-01,
+    -1.3984590e-01, -8.6301347e-02, -4.4507293e-02, -1.6549478e-02,
+    -1.3056036e-03, 4.3878848e-03, 4.3878848e-03, 2.1129433e-03,
+    -1.2498633e-04, -1.2708382e-03, -1.2708382e-03, -6.1568513e-04,
+    1.0820218e-04, 5.1499920e-04, 5.1499920e-04, 2.4715232e-04,
+    -6.5536121e-05, -2.4980637e-04, -2.4980637e-04, -1.1867613e-04,
+    3.9379594e-05, 1.3519068e-04, 1.3519068e-04, 6.3723841e-05,
+    -2.4115199e-05, -7.8285294e-05, -7.8285294e-05, -3.6722284e-05,
+    1.4946323e-05, 4.7121497e-05, 4.7121497e-05, 2.2062263e-05,
+    -9.2599043e-06, -2.8847070e-05, -2.8847070e-05, -1.3515240e-05,
+    5.6667933e-06, 1.7662551e-05, 1.7662551e-05, 8.2954689e-06,
+    -3.3974090e-06, -1.0688979e-05, -1.0688979e-05, -5.0344972e-06,
+    1.9973280e-06, 6.3659107e-06, 6.3659107e-06, 2.9998096e-06,
+    -1.1776385e-06, -3.7631296e-06, -3.7631296e-06, -1.8228700e-06,
+    5.1969281e-07, 1.9137999e-06, 1.9137999e-06, 9.9214536e-07,
+    -5.9854433e-09, -5.2141842e-07, -5.2141842e-07, -2.8073824e-07,
+    -7.1691648e-08, 8.2718543e-09, 8.2718543e-09, -7.2474601e-22,
+];
+
 fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<Complex32>>, wfm_fs: f32) {
-    let chip_rate = 2375.0_f32;
+    let bit_rate = 1187.5_f32;
     let rds_iter = buffer::RecvBufIter::new(rds_rx);
 
     // Anti-alias filter before ÷12 decimation (complex), cutoff at 9.5 kHz
-    // (Nyquist of the 19 kHz target rate)
     let aa1: biquad::Biquad<Complex32> = biquad::Biquad::lowpass(wfm_fs, 9000.0, 0.707);
     let aa2 = aa1.clone();
     let aa3 = aa1.clone();
 
     // Rational resample: ÷12 → 20 kHz → ↑19 ↓20 → 19 kHz
-    // The anti-alias filter for the ↑19↓20 stage runs at the virtual 380 kHz rate.
-    // We use a biquad at 9 kHz (below 9.5 kHz Nyquist) at the 20 kHz intermediate rate.
-    let intermediate_fs = wfm_fs / RDS_FIRST_DECIMATE as f32; // 20 kHz
+    let intermediate_fs = wfm_fs / RDS_FIRST_DECIMATE as f32;
     let resamp_aa1: biquad::Biquad<Complex32> = biquad::Biquad::lowpass(intermediate_fs * RDS_UPSAMPLE as f32, 9000.0, 0.707);
     let resamp_aa2 = resamp_aa1.clone();
 
-    let matched_filter: fir::Fir<Complex32> = fir::Fir::new(RDS_MATCHED_FILTER_TAPS.to_vec());
+    // Manchester-shaped RRC: simultaneously matches pulse shape AND decodes Manchester.
+    // Gardner runs at bit rate (1187.5 Hz), 16 samples per bit.
+    let matched_filter: fir::Fir<Complex32> = fir::Fir::new(RDS_MANCHESTER_RRC_TAPS.to_vec());
     let mut groups = rds_iter
         .dsp_filter(aa1).dsp_filter(aa2).dsp_filter(aa3)
         .downsample(RDS_FIRST_DECIMATE)
@@ -476,8 +518,15 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<Complex32
         .dsp_filter(matched_filter)
         .costas_demod(0.05)
         .dsp_filter(agc::Agc::new(RDS_FS, 10.0, 0.001))
-        .clock_recover(chip_rate, RDS_FS)
-        .manchester_decode()
+        .clock_recover(bit_rate, RDS_FS)
+        // Gardner output: positive → diff bit 1, negative → diff bit 0
+        // Differential decode: b[n] = d[n] XOR d[n-1]
+        .scan(0u8, |prev_diff, sample: f32| {
+            let diff_bit = if sample > 0.0 { 1u8 } else { 0u8 };
+            let data_bit = diff_bit ^ *prev_diff;
+            *prev_diff = diff_bit;
+            Some(data_bit)
+        })
         .rds_block_sync();
 
     let mut decoder = rds_block_sync::RdsDecoder::new();
