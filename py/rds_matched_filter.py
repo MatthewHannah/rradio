@@ -243,9 +243,10 @@ def main():
               f"fs={args.fs:.0f} Hz, ±{args.spans} chips, "
               f"window={args.window}")
         print(f"const RDS_MATCHED_FILTER: [f32; {len(h)}] = [")
-        for i, tap in enumerate(h):
-            comma = "," if i < len(h) - 1 else ""
-            print(f"    {tap:+.10e}_f32{comma}")
+        for i in range(0, len(h), 4):
+            chunk = h[i:min(i+4, len(h))]
+            vals = ", ".join(f"{v:.7e}" for v in chunk)
+            print(f"    {vals},")
         print("];")
 
     elif args.format == "json":
