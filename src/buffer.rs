@@ -96,6 +96,27 @@ where
         let _ = self.buf_out.send(QueueItem::Item(std::mem::take(&mut token.data)));
         token.released = true;
     }
+
+    /// Non-blocking version of `get()`. Returns `None` immediately if no
+    /// buffer slot is available, instead of blocking.
+    pub fn try_get(&mut self) -> Option<BufToken<T>> {
+        if self.done {
+            None
+        } else {
+            match self.buf_in.try_recv() {
+                Ok(QueueItem::Item(t)) => Some(BufToken {
+                    data: t,
+                    released: false,
+                    ret: self.buf_return.clone(),
+                }),
+                Ok(QueueItem::Done) => {
+                    self.done = true;
+                    None
+                },
+                Err(_) => None,
+            }
+        }
+    }
 }
 
 impl<T> Drop for SendBuf<T> where T: Default {
@@ -429,6 +450,134 @@ mod tests {
 
         tx_handle.join().unwrap();
         rx_handle.join().unwrap();
+    }
+
+    #[test]
+    fn test_try_get_returns_none_when_empty() {
+        let (mut tx, _rx) = buf_pair::<u32>(2);
+
+        // Acquire all available slots
+        let tok1 = tx.get().unwrap();
+        let tok2 = tx.get().unwrap();
+
+        // No slots left — try_get should return None immediately
+        assert!(tx.try_get().is_none());
+
+        // Drop one token to free a slot
+        drop(tok1);
+        drop(tok2);
+    }
+
+    #[test]
+    fn test_try_get_succeeds_when_available() {
+        let (mut tx, mut rx) = buf_pair::<u32>(2);
+
+        // try_get should succeed on a fresh buffer
+        let mut token = tx.try_get().unwrap();
+        *token = 42;
+        tx.commit(token);
+
+        let received = rx.get().unwrap();
+        assert_eq!(*received, 42);
+        rx.release(received);
+    }
+
+    #[test]
+    fn test_try_get_nonblocking_with_slow_consumer() {
+        let (mut tx, mut rx) = buf_pair::<u32>(2);
+
+        // Fill both slots
+        let mut t1 = tx.get().unwrap();
+        *t1 = 1;
+        tx.commit(t1);
+
+        let mut t2 = tx.get().unwrap();
+        *t2 = 2;
+        tx.commit(t2);
+
+        // Buffer full, consumer hasn't read — try_get returns None
+        assert!(tx.try_get().is_none());
+
+        // Consumer reads one — frees a slot
+        let tok = rx.get().unwrap();
+        assert_eq!(*tok, 1);
+        rx.release(tok);
+
+        // Now try_get should succeed
+        let mut t3 = tx.try_get().unwrap();
+        *t3 = 3;
+        tx.commit(t3);
+
+        // Verify order
+        let tok = rx.get().unwrap();
+        assert_eq!(*tok, 2);
+        rx.release(tok);
+
+        let tok = rx.get().unwrap();
+        assert_eq!(*tok, 3);
+        rx.release(tok);
+    }
+
+    #[test]
+    fn test_try_get_returns_none_after_done() {
+        let (mut tx, rx) = buf_pair::<u32>(2);
+
+        // Drop the receiver — signals done
+        drop(rx);
+
+        // get() returns None after receiver is gone
+        // try_get() should also eventually reflect this
+        // (the Done signal is sent when rx drops)
+        // First try_get may still return a slot, but once Done is received...
+        // Drain available slots
+        while let Some(_tok) = tx.try_get() {
+            // drain pool tokens
+        }
+        // After draining, the Done signal should be in the channel
+        assert!(tx.try_get().is_none());
+    }
+
+    #[test]
+    fn test_try_get_threading_drops_gracefully() {
+        // Simulate a slow consumer: producer uses try_get and drops
+        // samples it can't send, consumer reads what it can.
+        let (mut tx, rx) = buf_pair::<Vec<u32>>(2);
+
+        let rx_handle = thread::spawn(move || {
+            let iter = RecvBufIter::new(rx);
+            let mut count = 0;
+            for _val in iter {
+                count += 1;
+                // Simulate slow consumer
+                thread::sleep(std::time::Duration::from_millis(1));
+            }
+            count
+        });
+
+        let tx_handle = thread::spawn(move || {
+            let mut sent = 0;
+            let mut dropped = 0;
+            for i in 0..20 {
+                if let Some(mut token) = tx.try_get() {
+                    token.clear();
+                    token.push(i);
+                    tx.commit(token);
+                    sent += 1;
+                } else {
+                    dropped += 1;
+                }
+            }
+            (sent, dropped)
+        });
+
+        let (sent, dropped) = tx_handle.join().unwrap();
+        let received = rx_handle.join().unwrap();
+
+        // Producer should have sent some and dropped some
+        assert!(sent > 0, "should have sent at least some");
+        assert_eq!(sent + dropped, 20);
+        // Consumer receives what was sent
+        assert!(received <= sent, "received {} but only sent {}", received, sent);
     }
 
 }

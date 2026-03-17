@@ -246,13 +246,20 @@ struct AudioPipelineObservationSettings {
     spy_audio: bool,
 }
 
-struct AudioPipelineSettings {
+struct SignalPipelineSettings {
     iq_downsample: usize,
     fm_demod_downsample: usize,
-    audio_downsample: usize,
 }
 
-fn audio_pipeline(done: &atomic::AtomicBool, fs: f32, inbuf: buffer::RecvBuf<Vec<Complex32>>, mut outbuf: buffer::SendBuf<Vec<f32>>, settings: AudioPipelineSettings, obs_settings: AudioPipelineObservationSettings) {
+fn signal_pipeline(
+    done: &atomic::AtomicBool,
+    fs: f32,
+    inbuf: buffer::RecvBuf<Vec<Complex32>>,
+    mut audio_out: buffer::SendBuf<Vec<(f32, f32)>>,
+    mut rds_out: buffer::SendBuf<Vec<f32>>,
+    settings: SignalPipelineSettings,
+    obs_settings: AudioPipelineObservationSettings,
+) {
     let samples = buffer::RecvBufIter::new(inbuf);
 
     let fs_spy = fs;
@@ -260,7 +267,7 @@ fn audio_pipeline(done: &atomic::AtomicBool, fs: f32, inbuf: buffer::RecvBuf<Vec
         spectrogram(8192, 512, fs_spy, &iq_samples);
     }, obs_settings.spy_iq);
 
-    // audio pipeline
+    // IQ filtering + downsample
     let filt1 = biquad::Biquad::lowpass(fs, 300000.0, 0.707);
     let filt2 = filt1.clone();
     let filtered = samples.dsp_filter(filt1).dsp_filter(filt2);
@@ -272,57 +279,89 @@ fn audio_pipeline(done: &atomic::AtomicBool, fs: f32, inbuf: buffer::RecvBuf<Vec
         spectrogram(8192, 512, fs_spy, &audio_samples);
     }, obs_settings.spy_iq);
 
+    // FM demodulation + downsample
     let fm_filt = biquad::Biquad::lowpass(fs, 80000.0, 0.707);
     let fm_loop_filt = biquad::Biquad::lowpass(fs, 80000.0, 0.707);
     let demoded = resampled.dsp_filter(fm_filt).fm_demodulate(fm_loop_filt).downsample(settings.fm_demod_downsample);
-    let fs = fs / (settings.fm_demod_downsample as f32);
+    let _fs = fs / (settings.fm_demod_downsample as f32);
 
-    let fs_spy = fs;
+    let fs_spy = _fs;
     let demoded = demoded.maybe_spy(48000, move |audio_samples| {
         spectrogram(1024, 512, fs_spy, &audio_samples);
     }, obs_settings.spy_demoded);
 
-    let fs_spy = fs;
-    let mut lr = demoded.wfm_audio(fs).spy(48000, move |audio_samples| {
-        let rds = audio_samples.iter().map(|fm_out| Complex32::new(fm_out.rds, 0.0)).collect::<Vec<Complex32>>();
-        plot_freq_resp(&rds, fs_spy);
-        plot_re_im(&rds);
-    }).map(|fm_out| (fm_out.left, fm_out.right) ).downsample(settings.audio_downsample).interleave();
+    // Wideband FM audio (stereo + RDS extraction) — tee to two consumers
+    let mut wfm = demoded.wfm_audio(_fs);
+
+    let mut audio_batch: Option<buffer::BufToken<Vec<(f32, f32)>>> = None;
+    let mut rds_batch: Option<buffer::BufToken<Vec<f32>>> = None;
 
     while !done.load(atomic::Ordering::SeqCst) {
-        // buffering into outbuf
-        let out = outbuf.get();
-        if out.is_none() {
-            break;
+        // Ensure we have output buffers
+        if audio_batch.is_none() {
+            audio_batch = match audio_out.get() {
+                Some(mut tok) => { tok.clear(); Some(tok) }
+                None => break,
+            };
         }
-        let mut out = out.unwrap();
-        out.clear();
-        out.extend((&mut lr).take(8192));
+        if rds_batch.is_none() {
+            rds_batch = rds_out.try_get().map(|mut tok| { tok.clear(); tok });
+        }
 
-        if out.is_empty() {
-            break;
+        let sample = match wfm.next() {
+            Some(s) => s,
+            None => break,
+        };
+
+        // Tee: audio gets (left, right), RDS gets baseband
+        if let Some(ref mut buf) = audio_batch {
+            buf.push((sample.left, sample.right));
+            if buf.len() >= 4096 {
+                audio_out.commit(audio_batch.take().unwrap());
+            }
         }
-        outbuf.commit(out);
+        if let Some(ref mut buf) = rds_batch {
+            buf.push(sample.rds);
+            if buf.len() >= 4096 {
+                rds_out.commit(rds_batch.take().unwrap());
+            }
+        }
+    }
+
+    // Flush remaining
+    if let Some(buf) = audio_batch {
+        if !buf.is_empty() { audio_out.commit(buf); }
+    }
+    if let Some(buf) = rds_batch {
+        if !buf.is_empty() { rds_out.commit(buf); }
     }
 }
 
-fn compute_pipeline_settings(fs: f32) -> AudioPipelineSettings {
+fn compute_pipeline_settings(fs: f32) -> SignalPipelineSettings {
+    // Total downsample from IQ to wfm_audio stage: must reach 240 kHz
+    // wfm_audio runs at fs / iq_downsample / fm_demod_downsample
+    // Audio consumer does ÷5 → 48 kHz, so wfm rate must be 240 kHz
     let total_downsample = fs / 48000.0;
     let total_downsample_int = total_downsample.round() as usize;
     if (total_downsample - total_downsample_int as f32).abs() > 0.5 {
         panic!("Sample rate {} does not divide evenly to 48 kHz (ratio {})", fs, total_downsample);
     }
-    if total_downsample_int % 25 != 0 {
-        panic!("Sample rate {} requires total downsample of {} which is not divisible by 25", fs, total_downsample_int);
+    // Total = iq_downsample × fm_demod_downsample × audio_downsample(5)
+    // We need total / 5 for the signal pipeline portion (iq × fm_demod)
+    if total_downsample_int % 5 != 0 {
+        panic!("Sample rate {} requires total downsample of {} which is not divisible by 5", fs, total_downsample_int);
     }
-    let iq_downsample = total_downsample_int / 25;
+    let signal_downsample = total_downsample_int / 5; // iq × fm_demod
+    if signal_downsample % 5 != 0 {
+        panic!("Signal downsample {} is not divisible by 5 for fm_demod stage", signal_downsample);
+    }
+    let iq_downsample = signal_downsample / 5;
     if iq_downsample == 0 {
         panic!("Sample rate {} is too low for this pipeline (need at least 1.2 MHz)", fs);
     }
-    AudioPipelineSettings {
+    SignalPipelineSettings {
         iq_downsample,
         fm_demod_downsample: 5,
-        audio_downsample: 5,
     }
 }
 
@@ -356,6 +395,45 @@ fn write_wav<I>(samples: I, path: &str, fs: u32) where I: Iterator<Item = f32> {
     eprintln!("Wrote {} samples ({:.1}s) to {}", count, count as f64 / (fs as f64 * 2.0), path);
 }
 
+const AUDIO_DOWNSAMPLE: usize = 5;
+const RDS_DECIMATE: usize = 25;
+
+fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wfm_fs: f32) {
+    let rds_fs = wfm_fs / RDS_DECIMATE as f32;
+    let rds_iter = buffer::RecvBufIter::new(rds_rx);
+    let mut decimated = rds_iter.downsample(RDS_DECIMATE);
+
+    // Collect ~0.2s for a time-domain plot, then keep draining
+    let plot_samples = (rds_fs * 0.2) as usize;
+    let mut rds_buf: Vec<f32> = Vec::with_capacity(plot_samples);
+    let mut plotted = false;
+
+    while !done.load(atomic::Ordering::SeqCst) {
+        match decimated.next() {
+            Some(sample) => {
+                if !plotted {
+                    rds_buf.push(sample);
+                    if rds_buf.len() >= plot_samples {
+                        plotted = true;
+                        let data = std::mem::take(&mut rds_buf);
+                        let t: Vec<f32> = (0..data.len())
+                            .map(|i| i as f32 / rds_fs * 1000.0)
+                            .collect();
+                        let mut plot = Plot::new();
+                        let trace = Scatter::new(t, data)
+                            .name(&format!("RDS baseband @ {} Hz", rds_fs));
+                        plot.add_trace(trace);
+                        plot.show();
+                        eprintln!("RDS: plotted {} samples ({:.1} ms)",
+                            plot_samples, plot_samples as f32 / rds_fs * 1000.0);
+                    }
+                }
+            }
+            None => break,
+        }
+    }
+}
+
 fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::AtomicBool>, obs_settings: AudioPipelineObservationSettings) {
     let fs = match &iq_source {
         IqSource::Pluto { config } => config.fs,
@@ -364,11 +442,20 @@ fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::Ato
     };
 
     let settings = compute_pipeline_settings(fs);
-    eprintln!("Pipeline: fs={} Hz, downsample={}/{}/{}", fs, settings.iq_downsample, 5, 5);
+    let wfm_fs = fs / (settings.iq_downsample as f32) / (settings.fm_demod_downsample as f32);
+    eprintln!("Pipeline: fs={} Hz, iq_ds={}, fm_ds={}, wfm_fs={} Hz",
+        fs, settings.iq_downsample, settings.fm_demod_downsample, wfm_fs);
+    eprintln!("  Audio: wfm @ {} Hz → ÷{} → {} Hz stereo",
+        wfm_fs, AUDIO_DOWNSAMPLE, wfm_fs / AUDIO_DOWNSAMPLE as f32);
+    eprintln!("  RDS:   wfm @ {} Hz → ÷{} → {} Hz baseband",
+        wfm_fs, RDS_DECIMATE, wfm_fs / RDS_DECIMATE as f32);
 
+    // Buffer pairs
     let (iq_tx, iq_rx) = buffer::buf_pair(8);
-    let (audio_tx, audio_rx) = buffer::buf_pair(8);
+    let (audio_tx, audio_rx) = buffer::buf_pair::<Vec<(f32, f32)>>(8);
+    let (rds_tx, rds_rx) = buffer::buf_pair::<Vec<f32>>(8);
 
+    // Thread 1: IQ source
     let done_ref = done_sig.clone();
     let iq_thread = std::thread::spawn(move || {
         match iq_source {
@@ -378,24 +465,36 @@ fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::Ato
         }
     });
 
+    // Thread 2: Signal pipeline (FM demod + stereo/RDS extraction → tee)
     let done_ref = done_sig.clone();
-    let audio_thread = std::thread::spawn(move || {
-        audio_pipeline(&done_ref, fs, iq_rx, audio_tx, settings, obs_settings);
+    let signal_thread = std::thread::spawn(move || {
+        signal_pipeline(&done_ref, fs, iq_rx, audio_tx, rds_tx, settings, obs_settings);
     });
 
-    let audio_rx_iter = buffer::RecvBufIter::new(audio_rx);
+    // Thread 3: RDS consumer
+    let done_ref = done_sig.clone();
+    let rds_thread = std::thread::spawn(move || {
+        rds_pipeline(&done_ref, rds_rx, wfm_fs);
+    });
+
+    // Main thread: Audio consumer (downsample + interleave + output)
+    let audio_iter = buffer::RecvBufIter::new(audio_rx)
+        .downsample(AUDIO_DOWNSAMPLE)
+        .interleave();
+
     match audio_output {
         AudioOutput::Playback => {
-            playback::playback_iter(audio_rx_iter, 48000);
+            playback::playback_iter(audio_iter, 48000);
         }
         AudioOutput::Wav(path) => {
-            write_wav(audio_rx_iter, &path, 48000);
+            write_wav(audio_iter, &path, 48000);
         }
     }
     done_sig.store(true, atomic::Ordering::SeqCst);
 
     iq_thread.join().unwrap();
-    audio_thread.join().unwrap();
+    signal_thread.join().unwrap();
+    rds_thread.join().unwrap();
 }
 
 fn main() {

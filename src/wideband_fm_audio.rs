@@ -112,7 +112,6 @@ impl StereoDownmixer {
 
         let rds = self.rds_filt.process(rds_out.out * s);
         let rds = self.rds_filt2.process(rds);
-        let rds = if rds > 0.0 { 1.0 } else { 0.0 };
 
         StereoDownmixerOutput {
             stereo: pll_out.out * s,
