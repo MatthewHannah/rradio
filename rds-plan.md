@@ -382,49 +382,95 @@ Once you have the 1187.5 bps data stream, the digital layer is:
    on its own thread (`rds_pipeline`). Non-blocking `try_get` on RDS
    buffer prevents stalling audio.
 
-5. **RDS baseband signal**: ✅ Hard threshold removed. Continuous-valued
-   RDS baseband flows through the tee to the RDS consumer.
+5. **RDS baseband signal**: ✅ Complex baseband from PLL (I/Q via
+   `process_complex()`). Flows as `Complex32` through anti-alias filter,
+   decimation, and matched filter.
+
+6. **Phase synchronization**: ✅ Costas loop accepts complex input,
+   removes residual frequency offset and phase error, outputs real.
+
+7. **Amplitude normalization**: ✅ AGC after Costas loop normalizes
+   signal level for consistent Gardner TED performance across stations.
+
+8. **Manchester alignment**: ✅ Dual-alignment tracker runs both even/odd
+   pairings in parallel, selects the one with better sliding-window score.
 
 ## Current Status
 
-**End-to-end RDS decoding is working.** Verified against a real FM recording
-(96.1 MHz, 6 Msps SigMF capture) and live RTL-SDR. Successfully decodes:
-- PI code: 0x195C
-- Program Service name: "96.1" (Group 0A)
-- RadioText: "96.1 The Beat Go Crazy Chris Brown / Young Thug" (Group 2A)
+**End-to-end RDS decoding is working on live and recorded signals.**
+
+Verified against:
+- SigMF recording (96.1 MHz, 6 Msps): 111 groups in 21 seconds
+- Live RTL-SDR 94.9 MHz: 115 groups in 20 seconds
+- Live RTL-SDR 96.1 MHz: ~80 groups in 25 seconds (weaker station)
+
+Successfully decodes:
+- PI code, PS name, RadioText (Group 0A, 2A, 2B)
+- Example: PS="94.9 The Bull", RT="94.9 The Bull How Far Does A Goodbye Go Jason Aldean"
 
 The full pipeline chain:
 ```
-IQ @ 6 MHz → ÷5 → 1.2 MHz → FM demod → ÷5 → 240 kHz → wfm_audio → tee
+IQ @ 2.4 MHz → ÷2 → 1.2 MHz → FM demod → ÷5 → 240 kHz → wfm_audio → tee
   ├→ audio: ÷5 → 48 kHz stereo → playback/wav
-  └→ RDS:   anti-alias (3× LP @ 4 kHz) → ÷25 → 9600 Hz
-            → matched filter (65 taps) → Gardner clock recovery
-            → Manchester decode (auto-alignment) → differential decode
-            → block sync (CRC-10 + error correction) → group decode
-            → PS/RT accumulation → stderr output
+  └→ RDS (Complex32):
+        anti-alias (3× complex LP @ 4 kHz) → ÷25 → 9600 Hz
+        → complex matched filter (65 taps RRC)
+        → Costas loop (complex → real, BPSK phase sync)
+        → AGC (normalize for Gardner)
+        → Gardner clock recovery (2375 Hz chip rate)
+        → Manchester decode (dual-alignment, differential)
+        → block sync (CRC-10 + error correction ≤2 bits)
+        → group decode → PS/RT accumulation → stderr
 ```
+
+### Performance Progression (94.9 MHz live, 20-25s runs)
+
+| Improvement | Groups | Change |
+|-------------|--------|--------|
+| Initial implementation | 38 | baseline |
+| + AGC before matched filter | 53 | +39% |
+| + Costas loop (real-only) | 94 | +77% |
+| + Complex PLL output | 109 | +16% |
+| + Complex Costas, AGC after | **115** | +6% |
 
 ### Debugging Investigation
 
 Investigated the cause of frequent sync loss (~2–4 groups then loss):
 - **Buffer drops**: ✅ Zero drops — not the cause.
-- **PLL lock**: ✅ Rock-solid 0.018 throughout — not the cause.
+- **PLL lock**: ✅ Rock-solid throughout — not the cause.
 - **Gardner clock recovery**: ✅ Stable, tiny corrections — not the cause.
-- **Root cause**: Steady ~5% bit error rate at this SNR level. With 26 bits
-  per block, that's ~1.3 bit errors per block on average — enough to corrupt
-  CRC frequently.
+- **AGC amplitude sensitivity**: ✅ Confirmed via testing that Gardner TED
+  requires consistent amplitude. AGC placement (after Costas) is critical.
+- **Root cause**: Steady ~3-5% bit error rate. With 26 bits per block,
+  that's ~1 bit error per block on average — enough to corrupt CRC
+  frequently. Error correction recovers some blocks.
+
+### Key Findings from Research
+
+Compared our implementation against reference implementations (Bloessl's
+gr-rds, PySDR, site2241.net analysis):
+
+1. **AGC amplitude matters for TED** — confirmed by Andy Walls (GRCon17)
+   and Bloessl's carefully-tuned AGC. Our AGC at target=0.001 matches the
+   natural signal level for our Gardner loop gains.
+
+2. **Costas loop is essential** — the 57 kHz PLL tracks the pilot well but
+   has residual phase wander. The Costas loop after matched filtering
+   corrects this, nearly doubling group count on live signals.
+
+3. **Complex baseband is better** — processing I/Q through the matched
+   filter gives the Costas loop proper phase information, improving over
+   real-only processing.
 
 ### Known Limitations
 
-1. **~5% BER at moderate SNR** — this is the fundamental limit. The DSP
-   chain (PLL, clock recovery, Manchester decode) is working correctly.
-   Further improvement would require better SNR (antenna, gain) or more
-   sophisticated DSP (soft decisions, Viterbi-like decoding).
-
-2. **Corrected blocks can contain data errors** — CRC error correction
+1. **Corrected blocks can contain data errors** — CRC error correction
    recovers blocks with up to 2 bit errors, but if those errors are in
    the data bits (not check bits), the "corrected" data may be wrong.
-   Conservative correction (≤2 bit patterns only) mitigates this.
+
+2. **Station-dependent performance** — RDS injection level varies widely
+   between stations (as documented by site2241.net's measurements of 38
+   stations). Some stations may not decode even with good FM audio.
 
 ## Implemented Modules
 
@@ -432,22 +478,31 @@ Investigated the cause of frequent sync loss (~2–4 groups then loss):
 |--------|------|--------|-------------|
 | FIR filter | `fir.rs` | ✅ | Circular buffer FIR, `Filter` trait |
 | Gardner clock recovery | `gardner_clock_recovery.rs` | ✅ | TED + PI loop + NCO, iterator adapter |
-| Manchester decoder | `manchester.rs` | ✅ | Auto-alignment + differential decode |
-| RDS block sync | `rds_block_sync.rs` | ✅ | CRC-10, syndrome error correction (≤2 bit), sync state machine |
-| RDS decoder | `rds_block_sync.rs` | ✅ | PS + RadioText accumulation, group type 0A/2A/2B |
-| Anti-alias filter | `main.rs` (rds_pipeline) | ✅ | 3× cascaded LP @ 4 kHz before ÷25 decimation |
+| Manchester decoder | `manchester.rs` | ✅ | Dual-alignment + differential decode |
+| RDS block sync | `rds_block_sync.rs` | ✅ | CRC-10, error correction (≤2 bit), sync state machine |
+| RDS decoder | `rds_block_sync.rs` | ✅ | PS + RadioText accumulation |
+| AGC | `agc.rs` | ✅ | Exponential power tracking, `Filter` trait |
+| Costas loop | `costas.rs` | ✅ | Complex BPSK demod, iterator adapter |
+| Complex PLL | `pll.rs` | ✅ | `process_complex()` for I/Q carrier output |
+| Anti-alias filter | `main.rs` | ✅ | 3× cascaded complex LP @ 4 kHz |
 | Matched filter taps | `py/rds_matched_filter.py` | ✅ | Tap generator with verification + plotting |
 | Filter derivation docs | `docs/fir-filter-derivation.md` | ✅ | Frequency response → FIR walkthrough |
 
 ## Next Steps
 
-1. **Decode more group types** — clock/time (Group 4A), alternative
+1. **Bit-rate symbol sync with Manchester-shaped matched filter** — the
+   single most impactful remaining architectural change. Run Gardner at
+   1187.5 Hz (bit rate) instead of 2375 Hz (chip rate), using a matched
+   filter whose impulse response incorporates the Manchester encoding.
+   This eliminates the Manchester decoder entirely and resolves the
+   alignment issue at the root. Requires: new filter taps, resample to
+   19000 Hz (16 samp/bit), remove `manchester.rs`. Reference: Bloessl's
+   gr-rds flowgraph (best-performing in site2241.net comparison).
+
+2. **Decode more group types** — clock/time (Group 4A), alternative
    frequencies (Group 0A AF data), program type (PTY from block B).
 
-2. **PI code consistency filtering** — reject groups where PI code
-   doesn't match the established station. Would filter out false
-   corrections that produce garbage PI codes.
+3. **PI code consistency filtering** — reject groups where PI code
+   doesn't match the established station.
 
-3. **Signal quality improvements** — investigate cubic interpolation in
-   Gardner, wider loop bandwidth, or multi-stage decimation for better
-   anti-aliasing.
+4. **Cubic interpolation in Gardner** — minor improvement (~0.5 dB).

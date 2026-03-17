@@ -1,7 +1,13 @@
 use crate::filterable::Filter;
+use num_complex::Complex32;
 
 pub struct PllOutput {
     pub out: f32,
+    pub lock: f32,
+}
+
+pub struct ComplexPllOutput {
+    pub out: Complex32,
     pub lock: f32,
 }
 
@@ -42,8 +48,24 @@ impl <F> RealPll<F> where F: Filter<f32> {
         // Full-rate output at divisor× frequency
         let out = (2.0 * std::f32::consts::PI * self.phase).cos();
 
-
         self.phase = (self.phase + self.increment + error) % self.divisor;
         PllOutput { out, lock: self.lock_level }
+    }
+
+    /// Same as `process` but outputs a complex sinusoid (cos + j*sin)
+    /// at the full-rate frequency.
+    pub fn process_complex(&mut self, input: f32) -> ComplexPllOutput {
+        let divided_phase = 2.0 * std::f32::consts::PI * self.phase / self.divisor;
+        let feedback = divided_phase.cos();
+        let error = self.loop_filter.process(input * feedback) * self.loop_gain;
+
+        let lock_inst = input * divided_phase.sin();
+        self.lock_level += self.lock_alpha * (lock_inst - self.lock_level);
+
+        let full_phase = 2.0 * std::f32::consts::PI * self.phase;
+        let out = Complex32::new(full_phase.cos(), -full_phase.sin());
+
+        self.phase = (self.phase + self.increment + error) % self.divisor;
+        ComplexPllOutput { out, lock: self.lock_level }
     }
 }

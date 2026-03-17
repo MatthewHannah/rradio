@@ -2,6 +2,7 @@ use crate::biquad::Biquad;
 use crate::deemphasis::Deemphasis;
 use crate::filterable::Filter;
 use crate::pll::RealPll;
+use num_complex::Complex32;
 
 pub struct WidebandFmAudio<I> {
     input: I,
@@ -16,7 +17,7 @@ pub struct WidebandFmAudio<I> {
 pub struct WidebandFmAudioOutput {
     pub left: f32,
     pub right: f32,
-    pub rds: f32,
+    pub rds: Complex32,
     pub stereo_lock: f32,
     pub rds_lock: f32,
 }
@@ -76,13 +77,13 @@ impl <I> WidebandFmAudioIterable for I where I: Iterator<Item = f32> {
 struct StereoDownmixer {
     pll: RealPll<Biquad<f32>>,
     pll_rds: RealPll<Biquad<f32>>,
-    rds_filt: Biquad<f32>,
-    rds_filt2: Biquad<f32>,
+    rds_filt: Biquad<Complex32>,
+    rds_filt2: Biquad<Complex32>,
 }
 
 struct StereoDownmixerOutput {
     stereo: f32,
-    rds: f32,
+    rds: Complex32,
     stereo_lock: f32,
     rds_lock: f32,
 }
@@ -95,7 +96,7 @@ impl StereoDownmixer {
         let pll_rds_loop_filt = Biquad::lowpass(fs, 1000.0, 0.707);
         let pll_rds = RealPll::new(57e3, fs, 0.05, pll_rds_loop_filt, 3.0);
 
-        let rds_filt = Biquad::lowpass(fs, 4e3, 0.707);
+        let rds_filt: Biquad<Complex32> = Biquad::lowpass(fs, 4e3, 0.707);
         let rds_filt2 = rds_filt.clone();
         StereoDownmixer {
             pll,
@@ -108,14 +109,16 @@ impl StereoDownmixer {
     fn process(&mut self, s: f32) -> StereoDownmixerOutput {
         // pilot extract
         let pll_out = self.pll.process(s);
-        let rds_out = self.pll_rds.process(s);
+        let rds_out = self.pll_rds.process_complex(s);
 
-        let rds = self.rds_filt.process(rds_out.out * s);
+        // Complex downmix: s * conj(carrier) → complex baseband
+        let rds_baseband = rds_out.out * s;
+        let rds = self.rds_filt.process(rds_baseband);
         let rds = self.rds_filt2.process(rds);
 
         StereoDownmixerOutput {
             stereo: pll_out.out * s,
-            rds: rds,
+            rds,
             stereo_lock: pll_out.lock,
             rds_lock: rds_out.lock,
         }

@@ -18,6 +18,7 @@ mod gardner_clock_recovery;
 mod manchester;
 mod rds_block_sync;
 mod agc;
+mod costas;
 
 use std::sync::atomic;
 use std::sync::Arc;
@@ -26,6 +27,7 @@ use plotly::{HeatMap, Plot, Scatter};
 use num_complex::Complex32;
 use rustfft::{num_traits::Zero, FftPlanner};
 
+use crate::costas::CostasDemodulable;
 use crate::filterable::FilterableIter;
 use crate::fm_demod::FmDemodulatable;
 use crate::gardner_clock_recovery::GardnerClockRecoverable;
@@ -264,7 +266,7 @@ fn signal_pipeline(
     fs: f32,
     inbuf: buffer::RecvBuf<Vec<Complex32>>,
     mut audio_out: buffer::SendBuf<Vec<(f32, f32)>>,
-    mut rds_out: buffer::SendBuf<Vec<f32>>,
+    mut rds_out: buffer::SendBuf<Vec<Complex32>>,
     settings: SignalPipelineSettings,
     obs_settings: AudioPipelineObservationSettings,
 ) {
@@ -302,7 +304,7 @@ fn signal_pipeline(
     let mut wfm = demoded.wfm_audio(_fs);
 
     let mut audio_batch: Option<buffer::BufToken<Vec<(f32, f32)>>> = None;
-    let mut rds_batch: Option<buffer::BufToken<Vec<f32>>> = None;
+    let mut rds_batch: Option<buffer::BufToken<Vec<Complex32>>> = None;
 
     while !done.load(atomic::Ordering::SeqCst) {
         // Ensure we have output buffers
@@ -428,24 +430,23 @@ const RDS_MATCHED_FILTER_TAPS: [f32; 65] = [
     7.6271953e-21,
 ];
 
-fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wfm_fs: f32) {
+fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<Complex32>>, wfm_fs: f32) {
     let rds_fs = wfm_fs / RDS_DECIMATE as f32;
     let chip_rate = 2375.0_f32;
     let rds_iter = buffer::RecvBufIter::new(rds_rx);
 
-    // Anti-alias filter before ÷25 decimation: 3 cascaded biquad LP @ 4 kHz
-    // Combined with the existing 2× LP @ 3 kHz in wfm_audio, this gives
-    // ~40 dB signal-to-alias ratio at the 9600 Hz Nyquist.
-    let aa1 = biquad::Biquad::lowpass(wfm_fs, 4000.0, 0.707);
+    // Anti-alias filter before ÷25 decimation (complex)
+    let aa1: biquad::Biquad<Complex32> = biquad::Biquad::lowpass(wfm_fs, 4000.0, 0.707);
     let aa2 = aa1.clone();
     let aa3 = aa1.clone();
 
-    let matched_filter = fir::Fir::new(RDS_MATCHED_FILTER_TAPS.to_vec());
+    let matched_filter: fir::Fir<Complex32> = fir::Fir::new(RDS_MATCHED_FILTER_TAPS.to_vec());
     let mut groups = rds_iter
         .dsp_filter(aa1).dsp_filter(aa2).dsp_filter(aa3)
         .downsample(RDS_DECIMATE)
-        .dsp_filter(agc::Agc::new(rds_fs, 10.0, 0.001))
         .dsp_filter(matched_filter)
+        .costas_demod(0.05)
+        .dsp_filter(agc::Agc::new(rds_fs, 10.0, 0.001))
         .clock_recover(chip_rate, rds_fs)
         .manchester_decode()
         .rds_block_sync();
@@ -481,7 +482,7 @@ fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::Ato
     // Buffer pairs
     let (iq_tx, iq_rx) = buffer::buf_pair(8);
     let (audio_tx, audio_rx) = buffer::buf_pair::<Vec<(f32, f32)>>(8);
-    let (rds_tx, rds_rx) = buffer::buf_pair::<Vec<f32>>(8);
+    let (rds_tx, rds_rx) = buffer::buf_pair::<Vec<Complex32>>(8);
 
     // Thread 1: IQ source
     let done_ref = done_sig.clone();
