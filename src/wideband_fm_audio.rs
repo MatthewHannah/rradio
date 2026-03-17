@@ -95,7 +95,7 @@ impl StereoDownmixer {
         let pll_rds_loop_filt = Biquad::lowpass(fs, 1000.0, 0.707);
         let pll_rds = RealPll::new(57e3, fs, 0.05, pll_rds_loop_filt, 3.0);
 
-        let rds_filt = Biquad::lowpass(fs, 3e3, 0.707);
+        let rds_filt = Biquad::lowpass(fs, 4e3, 0.707);
         let rds_filt2 = rds_filt.clone();
         StereoDownmixer {
             pll,
