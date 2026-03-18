@@ -15,6 +15,8 @@ pub struct CostasLoop {
 
 impl CostasLoop {
     pub fn new(loop_bw: f32) -> Self {
+        // PI loop filter gains from 2nd-order PLL control theory.
+        // Same formula as Gardner — see gardner_clock_recovery.rs for details.
         let damping = 0.707_f32;
         let denom = 1.0 + 2.0 * damping * loop_bw + loop_bw * loop_bw;
         let alpha = 4.0 * damping * loop_bw / denom;

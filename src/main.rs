@@ -505,7 +505,7 @@ const RDS_MANCHESTER_RRC_TAPS: [f32; 144] = [
 ///   - Comparative analysis: https://www.site2241.net/january2024.htm
 ///   - Andy Walls, "Symbol Clock Recovery", GRCon 2017 (AGC requirements for TEDs)
 ///   - RDS standard: IEC 62106
-fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<Complex32>>, wfm_fs: f32, debug: bool) {
+fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<Complex32>>, wfm_fs: f32, debug: bool, metrics: bool) {
     let bit_rate = 1187.5_f32;
     let rds_iter = buffer::RecvBufIter::new(rds_rx);
 
@@ -544,11 +544,24 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<Complex32
 
     let mut decoder = rds_block_sync::RdsDecoder::new();
     let mut display = rds_block_sync::RdsDisplay::new();
+    let start_time = std::time::Instant::now();
 
     while !done.load(atomic::Ordering::SeqCst) {
         match groups.next() {
             Some(group) => {
                 let state = decoder.process(&group);
+                let elapsed = start_time.elapsed().as_secs_f64();
+
+                if metrics {
+                    let pi_str = if group.pi_code != 0 {
+                        format!("{:04X}", group.pi_code)
+                    } else {
+                        "0000".to_string()
+                    };
+                    eprintln!("RDSMETRIC {{\"t\":{:.3},\"bler\":{:.4},\"groups\":{},\"pi\":\"{}\"}}",
+                        elapsed, group.rolling_bler, state.groups_decoded, pi_str);
+                }
+
                 if debug {
                     let version_str = if group.version { "B" } else { "A" };
                     eprintln!("RDS Group {}{}: PI=0x{:04X} [{:04X} {:04X} {:04X} {:04X}]  BLER={:.1}%",
@@ -556,16 +569,23 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<Complex32
                         group.blocks[0], group.blocks[1], group.blocks[2], group.blocks[3],
                         group.rolling_bler * 100.0);
                     eprintln!("  PS=\"{}\"  RT=\"{}\"", state.ps, state.rt);
-                } else {
+                } else if !metrics {
                     display.render(&state);
                 }
             }
             None => break,
         }
     }
+
+    if metrics {
+        let elapsed = start_time.elapsed().as_secs_f64();
+        let state = decoder.display_state();
+        eprintln!("RDSSUMMARY {{\"groups\":{},\"duration\":{:.1},\"final_bler\":{:.4}}}",
+            state.groups_decoded, elapsed, 0.0);
+    }
 }
 
-fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::AtomicBool>, obs_settings: AudioPipelineObservationSettings, rds_debug: bool, record_path: Option<String>) {
+fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::AtomicBool>, obs_settings: AudioPipelineObservationSettings, rds_debug: bool, rds_metrics: bool, record_path: Option<String>) {
     let fs = match &iq_source {
         IqSource::Pluto { config } => config.fs,
         IqSource::Soapy { config } => config.fs,
@@ -692,7 +712,7 @@ fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::Ato
     // Thread 3: RDS consumer
     let done_ref = done_sig.clone();
     let rds_thread = std::thread::spawn(move || {
-        rds_pipeline(&done_ref, rds_rx, wfm_fs, rds_debug);
+        rds_pipeline(&done_ref, rds_rx, wfm_fs, rds_debug, rds_metrics);
     });
 
     // Main thread: Audio consumer (downsample + interleave + output)
@@ -738,6 +758,7 @@ fn main() {
     let mut positional = Vec::new();
     let mut wav_path: Option<String> = None;
     let mut rds_debug = false;
+    let mut rds_metrics = false;
     let mut record_path: Option<String> = None;
     let mut duration_secs: Option<f64> = None;
     let mut i = 0;
@@ -747,6 +768,9 @@ fn main() {
             i += 2;
         } else if args[i] == "--rds-debug" {
             rds_debug = true;
+            i += 1;
+        } else if args[i] == "--rds-metrics" {
+            rds_metrics = true;
             i += 1;
         } else if args[i] == "--record" {
             record_path = Some(args.get(i + 1).expect("Usage: --record <path>").clone());
@@ -786,7 +810,7 @@ fn main() {
                 * 1e3;
             let streamer = sigmf::SigmfStreamer::new(path).expect("Failed to open SigMF file");
             let source = IqSource::Sigmf { streamer, tune_offset };
-            run(source, audio_output, done_sig, obs_settings, rds_debug, record_path);
+            run(source, audio_output, done_sig, obs_settings, rds_debug, rds_metrics, record_path);
         }
         Some("soapy") => {
             let filter = pos.next().expect("Usage: rradio soapy <filter> [station_mhz]");
@@ -800,7 +824,7 @@ fn main() {
                 bw: 600e6,
                 fs: 2.4e6,
             };
-            run(IqSource::Soapy { config }, audio_output, done_sig, obs_settings, rds_debug, record_path);
+            run(IqSource::Soapy { config }, audio_output, done_sig, obs_settings, rds_debug, rds_metrics, record_path);
         }
         Some("pluto") => {
             let station: f32 = pos.next()
@@ -813,7 +837,7 @@ fn main() {
                 bw: 600e6,
                 fs: 2.4e6,
             };
-            run(IqSource::Pluto { config }, audio_output, done_sig, obs_settings, rds_debug, record_path);
+            run(IqSource::Pluto { config }, audio_output, done_sig, obs_settings, rds_debug, rds_metrics, record_path);
         }
         _ => {
             eprintln!("Usage: rradio <source> [options] [--wav <output.wav>]");

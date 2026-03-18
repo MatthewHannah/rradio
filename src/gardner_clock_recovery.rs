@@ -28,9 +28,15 @@ pub struct GardnerClockRecovery<I: Iterator<Item = f32>> {
 
 impl<I: Iterator<Item = f32>> GardnerClockRecovery<I> {
     pub fn new(iter: I, symbol_rate: f32, sample_rate: f32) -> Self {
-        // Loop bandwidth ~1% of symbol rate, damping factor 0.707
-        let bw_n = 0.01; // normalized loop bandwidth
-        let zeta = 0.707;
+        // PI loop filter gains derived from 2nd-order PLL control theory.
+        // Maps desired loop bandwidth and damping ratio to discrete-time
+        // proportional (Kp) and integral (Ki) gains:
+        //   Kp = 4 * zeta * bw_n / (1 + 2 * zeta * bw_n + bw_n^2)
+        //   Ki = 4 * bw_n^2 / (1 + 2 * zeta * bw_n + bw_n^2)
+        // This is the same formula used in GNU Radio's Symbol Sync block
+        // (see symbol_sync_cc_impl.cc in gr-digital).
+        let bw_n = 0.01; // normalized loop bandwidth (~1% of symbol rate)
+        let zeta = 0.707; // damping factor (critically damped)
         let denom = 1.0 + 2.0 * zeta * bw_n + bw_n * bw_n;
         let kp = 4.0 * zeta * bw_n / denom;
         let ki = 4.0 * bw_n * bw_n / denom;
