@@ -1,0 +1,5257 @@
+{
+  "best_score": 0.010095912874825662,
+  "best_config": {
+    "baseband_lpf_hz": 4136.028408096334,
+    "anti_alias_cutoff_hz": 6265.984775126355,
+    "anti_alias_order": 1,
+    "matched_filter_spans": 5,
+    "matched_filter_window": "hann",
+    "agc": {
+      "bandwidth_hz": 28.534619197333356,
+      "target_rms": 0.0005903357339430653
+    },
+    "costas": {
+      "loop_bw": 0.09366100027480749
+    },
+    "gardner": {
+      "loop_bw": 0.009156537378951427
+    },
+    "sync": {
+      "crc_correction_max_bits": 5,
+      "loss_threshold": 3
+    }
+  },
+  "trials": [
+    {
+      "trial": 0,
+      "score": 0.06609151912901913,
+      "config": {
+        "baseband_lpf_hz": 4000.0,
+        "anti_alias_cutoff_hz": 9000.0,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 8,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 10.0,
+          "target_rms": 0.001
+        },
+        "costas": {
+          "loop_bw": 0.05
+        },
+        "gardner": {
+          "loop_bw": 0.01
+        },
+        "sync": {
+          "crc_correction_max_bits": 2,
+          "loss_threshold": 5
+        }
+      },
+      "type": "default"
+    },
+    {
+      "trial": 7,
+      "score": 0.2226159043657122,
+      "config": {
+        "baseband_lpf_hz": 3679.6860028084375,
+        "anti_alias_cutoff_hz": 8423.241337961932,
+        "anti_alias_order": 1,
+        "matched_filter_spans": 14,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 30.945824278044498,
+          "target_rms": 0.00013071985070685002
+        },
+        "costas": {
+          "loop_bw": 0.017781607039016146
+        },
+        "gardner": {
+          "loop_bw": 0.005644433994041591
+        },
+        "sync": {
+          "crc_correction_max_bits": 0,
+          "loss_threshold": 10
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 8,
+      "score": 0.1975350838121539,
+      "config": {
+        "baseband_lpf_hz": 4373.180118325904,
+        "anti_alias_cutoff_hz": 9340.654705139405,
+        "anti_alias_order": 1,
+        "matched_filter_spans": 5,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 23.768066039895317,
+          "target_rms": 0.0003849324862624178
+        },
+        "costas": {
+          "loop_bw": 0.048880871418903786
+        },
+        "gardner": {
+          "loop_bw": 0.03207478603970504
+        },
+        "sync": {
+          "crc_correction_max_bits": 1,
+          "loss_threshold": 9
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 2,
+      "score": 0.6666666666666666,
+      "config": {
+        "baseband_lpf_hz": 3807.548449403428,
+        "anti_alias_cutoff_hz": 5640.777348793249,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 4,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 18.817318120224257,
+          "target_rms": 0.09468855803018576
+        },
+        "costas": {
+          "loop_bw": 0.0468858583165256
+        },
+        "gardner": {
+          "loop_bw": 0.03634033102696745
+        },
+        "sync": {
+          "crc_correction_max_bits": 4,
+          "loss_threshold": 11
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 3,
+      "score": 0.6988248366013071,
+      "config": {
+        "baseband_lpf_hz": 2792.8270084929277,
+        "anti_alias_cutoff_hz": 6057.016678081224,
+        "anti_alias_order": 5,
+        "matched_filter_spans": 15,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 1.6201119489775735,
+          "target_rms": 0.04790098178814946
+        },
+        "costas": {
+          "loop_bw": 0.07811798411212875
+        },
+        "gardner": {
+          "loop_bw": 0.03717240349712004
+        },
+        "sync": {
+          "crc_correction_max_bits": 4,
+          "loss_threshold": 11
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 5,
+      "score": 0.12725828703703704,
+      "config": {
+        "baseband_lpf_hz": 5419.201081637318,
+        "anti_alias_cutoff_hz": 4143.668220954615,
+        "anti_alias_order": 2,
+        "matched_filter_spans": 12,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 44.35811314886103,
+          "target_rms": 0.0073365750961092956
+        },
+        "costas": {
+          "loop_bw": 0.035220653579732995
+        },
+        "gardner": {
+          "loop_bw": 0.0077687070595718645
+        },
+        "sync": {
+          "crc_correction_max_bits": 3,
+          "loss_threshold": 3
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 4,
+      "score": 0.3277914547776617,
+      "config": {
+        "baseband_lpf_hz": 3967.463682464508,
+        "anti_alias_cutoff_hz": 7126.688624356639,
+        "anti_alias_order": 6,
+        "matched_filter_spans": 11,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 54.462771697006055,
+          "target_rms": 0.0013986881629708358
+        },
+        "costas": {
+          "loop_bw": 0.06074997527287814
+        },
+        "gardner": {
+          "loop_bw": 0.06351727629287188
+        },
+        "sync": {
+          "crc_correction_max_bits": 3,
+          "loss_threshold": 5
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 6,
+      "score": 0.4646662037037037,
+      "config": {
+        "baseband_lpf_hz": 5446.313461508274,
+        "anti_alias_cutoff_hz": 6531.248264518263,
+        "anti_alias_order": 2,
+        "matched_filter_spans": 10,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 83.0573672762766,
+          "target_rms": 0.02505359361649711
+        },
+        "costas": {
+          "loop_bw": 0.09434103754398178
+        },
+        "gardner": {
+          "loop_bw": 0.03642136176319334
+        },
+        "sync": {
+          "crc_correction_max_bits": 4,
+          "loss_threshold": 4
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 1,
+      "score": 0.6192595238095238,
+      "config": {
+        "baseband_lpf_hz": 2777.516429246079,
+        "anti_alias_cutoff_hz": 5030.23146012625,
+        "anti_alias_order": 2,
+        "matched_filter_spans": 6,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 15.651949865982974,
+          "target_rms": 0.0777508656002079
+        },
+        "costas": {
+          "loop_bw": 0.0860724318316507
+        },
+        "gardner": {
+          "loop_bw": 0.005647794972929342
+        },
+        "sync": {
+          "crc_correction_max_bits": 3,
+          "loss_threshold": 4
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 15,
+      "score": 0.45490907365676914,
+      "config": {
+        "baseband_lpf_hz": 5000.084675230238,
+        "anti_alias_cutoff_hz": 8622.248600870164,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 8,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 35.36805179577952,
+          "target_rms": 0.006458673573408421
+        },
+        "costas": {
+          "loop_bw": 0.035425096139002764
+        },
+        "gardner": {
+          "loop_bw": 0.005978330033894037
+        },
+        "sync": {
+          "crc_correction_max_bits": 2,
+          "loss_threshold": 12
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 10,
+      "score": 0.5432030799220273,
+      "config": {
+        "baseband_lpf_hz": 4244.190912475615,
+        "anti_alias_cutoff_hz": 6491.394610448329,
+        "anti_alias_order": 1,
+        "matched_filter_spans": 4,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 47.11069959035459,
+          "target_rms": 0.015580761535883642
+        },
+        "costas": {
+          "loop_bw": 0.08982440501155849
+        },
+        "gardner": {
+          "loop_bw": 0.010973159668513876
+        },
+        "sync": {
+          "crc_correction_max_bits": 1,
+          "loss_threshold": 5
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 14,
+      "score": 0.12733957131384252,
+      "config": {
+        "baseband_lpf_hz": 4304.0030734465245,
+        "anti_alias_cutoff_hz": 5164.643407840567,
+        "anti_alias_order": 6,
+        "matched_filter_spans": 14,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 57.80247604004298,
+          "target_rms": 0.002063490578166718
+        },
+        "costas": {
+          "loop_bw": 0.026174198257650525
+        },
+        "gardner": {
+          "loop_bw": 0.027903917328680236
+        },
+        "sync": {
+          "crc_correction_max_bits": 2,
+          "loss_threshold": 4
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 12,
+      "score": 0.5346186076604554,
+      "config": {
+        "baseband_lpf_hz": 5635.810353542627,
+        "anti_alias_cutoff_hz": 6686.3375322597,
+        "anti_alias_order": 6,
+        "matched_filter_spans": 16,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 3.57224279500554,
+          "target_rms": 0.005289801770894089
+        },
+        "costas": {
+          "loop_bw": 0.13500076798579494
+        },
+        "gardner": {
+          "loop_bw": 0.0386104199947762
+        },
+        "sync": {
+          "crc_correction_max_bits": 2,
+          "loss_threshold": 12
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 11,
+      "score": 0.0653938524590164,
+      "config": {
+        "baseband_lpf_hz": 3237.6197677973355,
+        "anti_alias_cutoff_hz": 6268.025247944781,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 7,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 13.602724016113916,
+          "target_rms": 0.0002976316032735359
+        },
+        "costas": {
+          "loop_bw": 0.1349062508662554
+        },
+        "gardner": {
+          "loop_bw": 0.008406242593833414
+        },
+        "sync": {
+          "crc_correction_max_bits": 4,
+          "loss_threshold": 8
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 13,
+      "score": 0.09095230800653593,
+      "config": {
+        "baseband_lpf_hz": 4439.701122576539,
+        "anti_alias_cutoff_hz": 6188.318000173731,
+        "anti_alias_order": 1,
+        "matched_filter_spans": 7,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 92.91686636660408,
+          "target_rms": 0.00037077451216284
+        },
+        "costas": {
+          "loop_bw": 0.06667755718316427
+        },
+        "gardner": {
+          "loop_bw": 0.006678256615744534
+        },
+        "sync": {
+          "crc_correction_max_bits": 0,
+          "loss_threshold": 10
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 9,
+      "score": 0.1699644420721187,
+      "config": {
+        "baseband_lpf_hz": 4299.269794764388,
+        "anti_alias_cutoff_hz": 9493.400142041728,
+        "anti_alias_order": 5,
+        "matched_filter_spans": 11,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 1.0948201619742344,
+          "target_rms": 0.00038447562583122875
+        },
+        "costas": {
+          "loop_bw": 0.06525385288912107
+        },
+        "gardner": {
+          "loop_bw": 0.04136246625852342
+        },
+        "sync": {
+          "crc_correction_max_bits": 2,
+          "loss_threshold": 7
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 16,
+      "score": 0.2095982787483448,
+      "config": {
+        "baseband_lpf_hz": 5934.845221212488,
+        "anti_alias_cutoff_hz": 8479.225386433347,
+        "anti_alias_order": 2,
+        "matched_filter_spans": 15,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 16.9416232461275,
+          "target_rms": 0.00436315967494562
+        },
+        "costas": {
+          "loop_bw": 0.129928090763516
+        },
+        "gardner": {
+          "loop_bw": 0.00855045153226895
+        },
+        "sync": {
+          "crc_correction_max_bits": 3,
+          "loss_threshold": 6
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 18,
+      "score": 0.08868362266857964,
+      "config": {
+        "baseband_lpf_hz": 5353.243580664004,
+        "anti_alias_cutoff_hz": 4069.830022137168,
+        "anti_alias_order": 4,
+        "matched_filter_spans": 16,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 72.66735309994715,
+          "target_rms": 0.0014361889198550792
+        },
+        "costas": {
+          "loop_bw": 0.06815031864878238
+        },
+        "gardner": {
+          "loop_bw": 0.02880049121491716
+        },
+        "sync": {
+          "crc_correction_max_bits": 0,
+          "loss_threshold": 3
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 17,
+      "score": 0.4010738313678281,
+      "config": {
+        "baseband_lpf_hz": 5185.746940078174,
+        "anti_alias_cutoff_hz": 5873.672580477685,
+        "anti_alias_order": 1,
+        "matched_filter_spans": 11,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 93.5289509101242,
+          "target_rms": 0.007491399582978507
+        },
+        "costas": {
+          "loop_bw": 0.04662981839980439
+        },
+        "gardner": {
+          "loop_bw": 0.00909100648365414
+        },
+        "sync": {
+          "crc_correction_max_bits": 4,
+          "loss_threshold": 9
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 20,
+      "score": 0.4245243867243868,
+      "config": {
+        "baseband_lpf_hz": 5854.9991374733,
+        "anti_alias_cutoff_hz": 8860.771886948434,
+        "anti_alias_order": 4,
+        "matched_filter_spans": 12,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 83.99949349162134,
+          "target_rms": 0.03695187918760041
+        },
+        "costas": {
+          "loop_bw": 0.07937249343479927
+        },
+        "gardner": {
+          "loop_bw": 0.03030441534739134
+        },
+        "sync": {
+          "crc_correction_max_bits": 3,
+          "loss_threshold": 4
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 22,
+      "score": 0.44643403005091836,
+      "config": {
+        "baseband_lpf_hz": 4935.423156462608,
+        "anti_alias_cutoff_hz": 8754.161943779442,
+        "anti_alias_order": 6,
+        "matched_filter_spans": 6,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 17.92338423639904,
+          "target_rms": 0.004853717849663265
+        },
+        "costas": {
+          "loop_bw": 0.05910133109304152
+        },
+        "gardner": {
+          "loop_bw": 0.04611961353333505
+        },
+        "sync": {
+          "crc_correction_max_bits": 1,
+          "loss_threshold": 9
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 24,
+      "score": 0.3808040280857354,
+      "config": {
+        "baseband_lpf_hz": 4592.241265195518,
+        "anti_alias_cutoff_hz": 8010.656469518071,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 7,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 12.920380204819342,
+          "target_rms": 0.020884505029359537
+        },
+        "costas": {
+          "loop_bw": 0.015579531115985168
+        },
+        "gardner": {
+          "loop_bw": 0.007723308038308736
+        },
+        "sync": {
+          "crc_correction_max_bits": 0,
+          "loss_threshold": 9
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 19,
+      "score": 0.45,
+      "config": {
+        "baseband_lpf_hz": 4103.617360748991,
+        "anti_alias_cutoff_hz": 9364.013341076165,
+        "anti_alias_order": 1,
+        "matched_filter_spans": 15,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 9.391230603523855,
+          "target_rms": 0.056568236435305695
+        },
+        "costas": {
+          "loop_bw": 0.10371213853770056
+        },
+        "gardner": {
+          "loop_bw": 0.0402890207631045
+        },
+        "sync": {
+          "crc_correction_max_bits": 5,
+          "loss_threshold": 3
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 21,
+      "score": 0.5712732407407407,
+      "config": {
+        "baseband_lpf_hz": 4094.8033486377262,
+        "anti_alias_cutoff_hz": 6425.281337073423,
+        "anti_alias_order": 2,
+        "matched_filter_spans": 6,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 86.31600394193698,
+          "target_rms": 0.028448364842778545
+        },
+        "costas": {
+          "loop_bw": 0.04965876629511168
+        },
+        "gardner": {
+          "loop_bw": 0.0421338636694287
+        },
+        "sync": {
+          "crc_correction_max_bits": 3,
+          "loss_threshold": 6
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 23,
+      "score": 1.0,
+      "config": {
+        "baseband_lpf_hz": 3297.093142365404,
+        "anti_alias_cutoff_hz": 4298.731727345809,
+        "anti_alias_order": 2,
+        "matched_filter_spans": 9,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 1.4028541489038,
+          "target_rms": 0.09154348062852888
+        },
+        "costas": {
+          "loop_bw": 0.0421398343364529
+        },
+        "gardner": {
+          "loop_bw": 0.08996666012742129
+        },
+        "sync": {
+          "crc_correction_max_bits": 2,
+          "loss_threshold": 4
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 28,
+      "score": 0.5598599174406605,
+      "config": {
+        "baseband_lpf_hz": 5511.466879701909,
+        "anti_alias_cutoff_hz": 4831.578910465245,
+        "anti_alias_order": 2,
+        "matched_filter_spans": 10,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 76.38880980166368,
+          "target_rms": 0.009147608310510097
+        },
+        "costas": {
+          "loop_bw": 0.06340293398449397
+        },
+        "gardner": {
+          "loop_bw": 0.021925854680377665
+        },
+        "sync": {
+          "crc_correction_max_bits": 0,
+          "loss_threshold": 3
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 31,
+      "score": 0.49491766182043545,
+      "config": {
+        "baseband_lpf_hz": 5221.991427763192,
+        "anti_alias_cutoff_hz": 7807.933795855961,
+        "anti_alias_order": 1,
+        "matched_filter_spans": 4,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 55.101042693306866,
+          "target_rms": 0.019788723136083302
+        },
+        "costas": {
+          "loop_bw": 0.02808154752356742
+        },
+        "gardner": {
+          "loop_bw": 0.09213254737485489
+        },
+        "sync": {
+          "crc_correction_max_bits": 5,
+          "loss_threshold": 12
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 26,
+      "score": 0.38847595773318727,
+      "config": {
+        "baseband_lpf_hz": 5564.897793155945,
+        "anti_alias_cutoff_hz": 4006.2129012879254,
+        "anti_alias_order": 5,
+        "matched_filter_spans": 15,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 2.64994401467189,
+          "target_rms": 0.002923061524831587
+        },
+        "costas": {
+          "loop_bw": 0.024768639242636777
+        },
+        "gardner": {
+          "loop_bw": 0.021428836557555186
+        },
+        "sync": {
+          "crc_correction_max_bits": 5,
+          "loss_threshold": 13
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 25,
+      "score": 0.07469085775335775,
+      "config": {
+        "baseband_lpf_hz": 3882.968020945257,
+        "anti_alias_cutoff_hz": 7186.004637941625,
+        "anti_alias_order": 6,
+        "matched_filter_spans": 12,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 56.31174916347668,
+          "target_rms": 0.00010713568531579482
+        },
+        "costas": {
+          "loop_bw": 0.11657499083824137
+        },
+        "gardner": {
+          "loop_bw": 0.06211070810731062
+        },
+        "sync": {
+          "crc_correction_max_bits": 3,
+          "loss_threshold": 3
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 30,
+      "score": 0.7709728787878788,
+      "config": {
+        "baseband_lpf_hz": 3199.7211750886463,
+        "anti_alias_cutoff_hz": 4229.529149692083,
+        "anti_alias_order": 1,
+        "matched_filter_spans": 11,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 1.7693961324802026,
+          "target_rms": 0.08696674956404005
+        },
+        "costas": {
+          "loop_bw": 0.05119133565643788
+        },
+        "gardner": {
+          "loop_bw": 0.009949684973175547
+        },
+        "sync": {
+          "crc_correction_max_bits": 3,
+          "loss_threshold": 15
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 29,
+      "score": 0.41853608065991654,
+      "config": {
+        "baseband_lpf_hz": 4271.978853864684,
+        "anti_alias_cutoff_hz": 9354.938267706897,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 6,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 15.70088077024611,
+          "target_rms": 0.0011047225526898436
+        },
+        "costas": {
+          "loop_bw": 0.016121913915569122
+        },
+        "gardner": {
+          "loop_bw": 0.05071486746121156
+        },
+        "sync": {
+          "crc_correction_max_bits": 5,
+          "loss_threshold": 14
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 32,
+      "score": 0.4604625,
+      "config": {
+        "baseband_lpf_hz": 5101.809014133765,
+        "anti_alias_cutoff_hz": 9357.6505372276,
+        "anti_alias_order": 1,
+        "matched_filter_spans": 15,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 1.780488501859469,
+          "target_rms": 0.041153746068812315
+        },
+        "costas": {
+          "loop_bw": 0.038989605674330935
+        },
+        "gardner": {
+          "loop_bw": 0.005101498639722572
+        },
+        "sync": {
+          "crc_correction_max_bits": 1,
+          "loss_threshold": 3
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 27,
+      "score": 0.3560340941816247,
+      "config": {
+        "baseband_lpf_hz": 3444.5468367175927,
+        "anti_alias_cutoff_hz": 8446.4319032266,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 13,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 1.2574537544914373,
+          "target_rms": 0.0015403393054925698
+        },
+        "costas": {
+          "loop_bw": 0.014026576999236104
+        },
+        "gardner": {
+          "loop_bw": 0.006463841764739712
+        },
+        "sync": {
+          "crc_correction_max_bits": 0,
+          "loss_threshold": 13
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 39,
+      "score": 0.09425746814550735,
+      "config": {
+        "baseband_lpf_hz": 2529.556827903329,
+        "anti_alias_cutoff_hz": 6539.565702347152,
+        "anti_alias_order": 1,
+        "matched_filter_spans": 8,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 5.7958508414946515,
+          "target_rms": 0.0005454073809855109
+        },
+        "costas": {
+          "loop_bw": 0.1219127013395213
+        },
+        "gardner": {
+          "loop_bw": 0.012114247845528418
+        },
+        "sync": {
+          "crc_correction_max_bits": 0,
+          "loss_threshold": 4
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 40,
+      "score": 0.20018159633962304,
+      "config": {
+        "baseband_lpf_hz": 5269.411344674226,
+        "anti_alias_cutoff_hz": 5316.9861536048475,
+        "anti_alias_order": 6,
+        "matched_filter_spans": 11,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 5.022784655515977,
+          "target_rms": 0.003026845539685634
+        },
+        "costas": {
+          "loop_bw": 0.034699155167311146
+        },
+        "gardner": {
+          "loop_bw": 0.010912400814079416
+        },
+        "sync": {
+          "crc_correction_max_bits": 0,
+          "loss_threshold": 5
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 34,
+      "score": 0.29503915285061005,
+      "config": {
+        "baseband_lpf_hz": 3703.151703069458,
+        "anti_alias_cutoff_hz": 4350.489985580698,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 10,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 12.369702557675923,
+          "target_rms": 0.00020422319228138823
+        },
+        "costas": {
+          "loop_bw": 0.015684998893550434
+        },
+        "gardner": {
+          "loop_bw": 0.026906871825643344
+        },
+        "sync": {
+          "crc_correction_max_bits": 0,
+          "loss_threshold": 15
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 38,
+      "score": 0.06510793803643854,
+      "config": {
+        "baseband_lpf_hz": 2552.0389980831733,
+        "anti_alias_cutoff_hz": 9305.478010008872,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 16,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 31.011914878277715,
+          "target_rms": 0.0001286064561123166
+        },
+        "costas": {
+          "loop_bw": 0.168298460939295
+        },
+        "gardner": {
+          "loop_bw": 0.015188709968613259
+        },
+        "sync": {
+          "crc_correction_max_bits": 3,
+          "loss_threshold": 4
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 36,
+      "score": 0.3919154309047926,
+      "config": {
+        "baseband_lpf_hz": 4480.826662924071,
+        "anti_alias_cutoff_hz": 4488.6898106433655,
+        "anti_alias_order": 4,
+        "matched_filter_spans": 15,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 2.491708536332429,
+          "target_rms": 0.07555171337878962
+        },
+        "costas": {
+          "loop_bw": 0.04304849228852729
+        },
+        "gardner": {
+          "loop_bw": 0.007098828944488204
+        },
+        "sync": {
+          "crc_correction_max_bits": 4,
+          "loss_threshold": 15
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 35,
+      "score": 0.07282198747149726,
+      "config": {
+        "baseband_lpf_hz": 4791.880563677058,
+        "anti_alias_cutoff_hz": 6241.410115532983,
+        "anti_alias_order": 4,
+        "matched_filter_spans": 14,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 5.45000289583106,
+          "target_rms": 0.00018906864477538944
+        },
+        "costas": {
+          "loop_bw": 0.04823312796223388
+        },
+        "gardner": {
+          "loop_bw": 0.05723959336523712
+        },
+        "sync": {
+          "crc_correction_max_bits": 5,
+          "loss_threshold": 4
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 37,
+      "score": 0.14944223215056548,
+      "config": {
+        "baseband_lpf_hz": 5770.739546573055,
+        "anti_alias_cutoff_hz": 4059.256045601773,
+        "anti_alias_order": 4,
+        "matched_filter_spans": 4,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 10.908912417600805,
+          "target_rms": 0.001534353096037345
+        },
+        "costas": {
+          "loop_bw": 0.03285470456447128
+        },
+        "gardner": {
+          "loop_bw": 0.009663227957832128
+        },
+        "sync": {
+          "crc_correction_max_bits": 2,
+          "loss_threshold": 13
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 33,
+      "score": 0.865411111111111,
+      "config": {
+        "baseband_lpf_hz": 2763.6358825169837,
+        "anti_alias_cutoff_hz": 5790.51366609023,
+        "anti_alias_order": 4,
+        "matched_filter_spans": 16,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 3.8886638549466093,
+          "target_rms": 0.03781425620208785
+        },
+        "costas": {
+          "loop_bw": 0.19088121337673725
+        },
+        "gardner": {
+          "loop_bw": 0.06263136059720832
+        },
+        "sync": {
+          "crc_correction_max_bits": 2,
+          "loss_threshold": 15
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 42,
+      "score": 0.49455831586215027,
+      "config": {
+        "baseband_lpf_hz": 4376.821058301597,
+        "anti_alias_cutoff_hz": 4163.473978867926,
+        "anti_alias_order": 5,
+        "matched_filter_spans": 14,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 48.76341291332546,
+          "target_rms": 0.018646394323584503
+        },
+        "costas": {
+          "loop_bw": 0.010186680516739216
+        },
+        "gardner": {
+          "loop_bw": 0.03992145062314257
+        },
+        "sync": {
+          "crc_correction_max_bits": 5,
+          "loss_threshold": 15
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 41,
+      "score": 0.5221271662041319,
+      "config": {
+        "baseband_lpf_hz": 3361.1535869575887,
+        "anti_alias_cutoff_hz": 8483.31319326245,
+        "anti_alias_order": 6,
+        "matched_filter_spans": 4,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 90.78349697402552,
+          "target_rms": 0.020280457450794123
+        },
+        "costas": {
+          "loop_bw": 0.013678873175698951
+        },
+        "gardner": {
+          "loop_bw": 0.039712001324064945
+        },
+        "sync": {
+          "crc_correction_max_bits": 3,
+          "loss_threshold": 7
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 44,
+      "score": 0.6048610324376665,
+      "config": {
+        "baseband_lpf_hz": 4648.123150879686,
+        "anti_alias_cutoff_hz": 8584.987831319031,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 16,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 20.045096920071067,
+          "target_rms": 0.013510010078071136
+        },
+        "costas": {
+          "loop_bw": 0.07818393933255692
+        },
+        "gardner": {
+          "loop_bw": 0.027896485498916268
+        },
+        "sync": {
+          "crc_correction_max_bits": 3,
+          "loss_threshold": 15
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 48,
+      "score": 0.15613949719824322,
+      "config": {
+        "baseband_lpf_hz": 2561.2637808362524,
+        "anti_alias_cutoff_hz": 7986.108492350794,
+        "anti_alias_order": 4,
+        "matched_filter_spans": 6,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 57.52181847022627,
+          "target_rms": 0.010540996089181041
+        },
+        "costas": {
+          "loop_bw": 0.05261098191547784
+        },
+        "gardner": {
+          "loop_bw": 0.015244475506669578
+        },
+        "sync": {
+          "crc_correction_max_bits": 0,
+          "loss_threshold": 4
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 47,
+      "score": 0.4308834309209309,
+      "config": {
+        "baseband_lpf_hz": 5616.5574796743085,
+        "anti_alias_cutoff_hz": 8455.84204117661,
+        "anti_alias_order": 6,
+        "matched_filter_spans": 9,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 36.95137789617076,
+          "target_rms": 0.005109431803311393
+        },
+        "costas": {
+          "loop_bw": 0.07727028448307156
+        },
+        "gardner": {
+          "loop_bw": 0.03634971726066516
+        },
+        "sync": {
+          "crc_correction_max_bits": 5,
+          "loss_threshold": 12
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 45,
+      "score": 0.4007369047619047,
+      "config": {
+        "baseband_lpf_hz": 3414.145845994533,
+        "anti_alias_cutoff_hz": 6250.049692171562,
+        "anti_alias_order": 2,
+        "matched_filter_spans": 11,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 1.5429971032944372,
+          "target_rms": 0.003162749253807416
+        },
+        "costas": {
+          "loop_bw": 0.055893436974317506
+        },
+        "gardner": {
+          "loop_bw": 0.02178943298454814
+        },
+        "sync": {
+          "crc_correction_max_bits": 4,
+          "loss_threshold": 9
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 46,
+      "score": 0.5737921451355662,
+      "config": {
+        "baseband_lpf_hz": 4357.0619902659455,
+        "anti_alias_cutoff_hz": 9467.94886994933,
+        "anti_alias_order": 6,
+        "matched_filter_spans": 12,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 12.999734074518095,
+          "target_rms": 0.008821796069747064
+        },
+        "costas": {
+          "loop_bw": 0.06746989175465193
+        },
+        "gardner": {
+          "loop_bw": 0.043026363985421125
+        },
+        "sync": {
+          "crc_correction_max_bits": 2,
+          "loss_threshold": 15
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 43,
+      "score": 0.227510509707364,
+      "config": {
+        "baseband_lpf_hz": 3692.4995974329277,
+        "anti_alias_cutoff_hz": 5465.061650645847,
+        "anti_alias_order": 1,
+        "matched_filter_spans": 14,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 4.115141319660795,
+          "target_rms": 0.000544857857112937
+        },
+        "costas": {
+          "loop_bw": 0.02726499390194581
+        },
+        "gardner": {
+          "loop_bw": 0.0862323363573056
+        },
+        "sync": {
+          "crc_correction_max_bits": 3,
+          "loss_threshold": 5
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 51,
+      "score": 0.010095912874825662,
+      "config": {
+        "baseband_lpf_hz": 4136.028408096334,
+        "anti_alias_cutoff_hz": 6265.984775126355,
+        "anti_alias_order": 1,
+        "matched_filter_spans": 5,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 28.534619197333356,
+          "target_rms": 0.0005903357339430653
+        },
+        "costas": {
+          "loop_bw": 0.09366100027480749
+        },
+        "gardner": {
+          "loop_bw": 0.009156537378951427
+        },
+        "sync": {
+          "crc_correction_max_bits": 5,
+          "loss_threshold": 3
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 54,
+      "score": 0.6238519027777778,
+      "config": {
+        "baseband_lpf_hz": 5694.890724771829,
+        "anti_alias_cutoff_hz": 6778.676649136898,
+        "anti_alias_order": 2,
+        "matched_filter_spans": 4,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 2.8120279154818357,
+          "target_rms": 0.05340775830853839
+        },
+        "costas": {
+          "loop_bw": 0.044460877763024376
+        },
+        "gardner": {
+          "loop_bw": 0.007652802904844118
+        },
+        "sync": {
+          "crc_correction_max_bits": 3,
+          "loss_threshold": 13
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 50,
+      "score": 0.28507271587038574,
+      "config": {
+        "baseband_lpf_hz": 4162.808334553479,
+        "anti_alias_cutoff_hz": 7895.180964222123,
+        "anti_alias_order": 6,
+        "matched_filter_spans": 11,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 3.3693041874025864,
+          "target_rms": 0.00011186631025611776
+        },
+        "costas": {
+          "loop_bw": 0.0278354226843499
+        },
+        "gardner": {
+          "loop_bw": 0.006954338731053923
+        },
+        "sync": {
+          "crc_correction_max_bits": 5,
+          "loss_threshold": 12
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 49,
+      "score": 0.13982117947955144,
+      "config": {
+        "baseband_lpf_hz": 3995.436440758068,
+        "anti_alias_cutoff_hz": 4156.514791964004,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 12,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 3.687010093941751,
+          "target_rms": 0.0002245800975701661
+        },
+        "costas": {
+          "loop_bw": 0.10888479347930609
+        },
+        "gardner": {
+          "loop_bw": 0.046648043337495615
+        },
+        "sync": {
+          "crc_correction_max_bits": 1,
+          "loss_threshold": 8
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 56,
+      "score": 0.5271255590496157,
+      "config": {
+        "baseband_lpf_hz": 4669.241374969536,
+        "anti_alias_cutoff_hz": 6872.414153661586,
+        "anti_alias_order": 6,
+        "matched_filter_spans": 4,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 12.735709273269107,
+          "target_rms": 0.023512483774864056
+        },
+        "costas": {
+          "loop_bw": 0.015360902067820467
+        },
+        "gardner": {
+          "loop_bw": 0.06128039858170705
+        },
+        "sync": {
+          "crc_correction_max_bits": 4,
+          "loss_threshold": 11
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 53,
+      "score": 0.30567848656644575,
+      "config": {
+        "baseband_lpf_hz": 3256.8734254116875,
+        "anti_alias_cutoff_hz": 7275.692395239121,
+        "anti_alias_order": 4,
+        "matched_filter_spans": 8,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 4.241711198606528,
+          "target_rms": 0.0002413520809826764
+        },
+        "costas": {
+          "loop_bw": 0.022194930602991197
+        },
+        "gardner": {
+          "loop_bw": 0.005991258372013441
+        },
+        "sync": {
+          "crc_correction_max_bits": 0,
+          "loss_threshold": 12
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 55,
+      "score": 0.11517916798819842,
+      "config": {
+        "baseband_lpf_hz": 4414.611118166801,
+        "anti_alias_cutoff_hz": 9357.01839925881,
+        "anti_alias_order": 6,
+        "matched_filter_spans": 5,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 1.1009588257676841,
+          "target_rms": 0.00043927587650217296
+        },
+        "costas": {
+          "loop_bw": 0.02026099001825136
+        },
+        "gardner": {
+          "loop_bw": 0.020505556783298868
+        },
+        "sync": {
+          "crc_correction_max_bits": 3,
+          "loss_threshold": 3
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 52,
+      "score": 0.24390763811642568,
+      "config": {
+        "baseband_lpf_hz": 4122.45373619471,
+        "anti_alias_cutoff_hz": 8434.037380919975,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 13,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 1.2688639521918974,
+          "target_rms": 0.000653732964274562
+        },
+        "costas": {
+          "loop_bw": 0.10398408050029731
+        },
+        "gardner": {
+          "loop_bw": 0.05485864578364877
+        },
+        "sync": {
+          "crc_correction_max_bits": 4,
+          "loss_threshold": 6
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 62,
+      "score": 0.50510031109877,
+      "config": {
+        "baseband_lpf_hz": 5611.055524110772,
+        "anti_alias_cutoff_hz": 7987.858131370793,
+        "anti_alias_order": 4,
+        "matched_filter_spans": 7,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 2.9728873067127313,
+          "target_rms": 0.006322022440144244
+        },
+        "costas": {
+          "loop_bw": 0.10124084242519404
+        },
+        "gardner": {
+          "loop_bw": 0.0902818675193984
+        },
+        "sync": {
+          "crc_correction_max_bits": 4,
+          "loss_threshold": 4
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 60,
+      "score": 0.1827276601998824,
+      "config": {
+        "baseband_lpf_hz": 4985.890368580402,
+        "anti_alias_cutoff_hz": 9019.195784311767,
+        "anti_alias_order": 6,
+        "matched_filter_spans": 16,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 27.897308468130024,
+          "target_rms": 0.00017657129620297934
+        },
+        "costas": {
+          "loop_bw": 0.025044597132537733
+        },
+        "gardner": {
+          "loop_bw": 0.012689755998331107
+        },
+        "sync": {
+          "crc_correction_max_bits": 0,
+          "loss_threshold": 7
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 61,
+      "score": 0.7085637634408603,
+      "config": {
+        "baseband_lpf_hz": 4959.827208357573,
+        "anti_alias_cutoff_hz": 9324.123924508534,
+        "anti_alias_order": 2,
+        "matched_filter_spans": 15,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 18.019565245694587,
+          "target_rms": 0.01914635894162194
+        },
+        "costas": {
+          "loop_bw": 0.02536235896480778
+        },
+        "gardner": {
+          "loop_bw": 0.09216501084606123
+        },
+        "sync": {
+          "crc_correction_max_bits": 2,
+          "loss_threshold": 11
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 63,
+      "score": 0.36496500000000004,
+      "config": {
+        "baseband_lpf_hz": 5765.358399498737,
+        "anti_alias_cutoff_hz": 5630.1438567680125,
+        "anti_alias_order": 4,
+        "matched_filter_spans": 14,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 11.587861869161763,
+          "target_rms": 0.03301980217761436
+        },
+        "costas": {
+          "loop_bw": 0.021191551144914375
+        },
+        "gardner": {
+          "loop_bw": 0.017971125732026465
+        },
+        "sync": {
+          "crc_correction_max_bits": 5,
+          "loss_threshold": 3
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 58,
+      "score": 0.5207283133533135,
+      "config": {
+        "baseband_lpf_hz": 4956.72669980707,
+        "anti_alias_cutoff_hz": 6210.786149657877,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 12,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 18.23682260167387,
+          "target_rms": 0.002041029616945455
+        },
+        "costas": {
+          "loop_bw": 0.11469594477169277
+        },
+        "gardner": {
+          "loop_bw": 0.0903480533052637
+        },
+        "sync": {
+          "crc_correction_max_bits": 2,
+          "loss_threshold": 14
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 59,
+      "score": 0.32018499818917207,
+      "config": {
+        "baseband_lpf_hz": 3925.3033332744008,
+        "anti_alias_cutoff_hz": 8373.915610703769,
+        "anti_alias_order": 2,
+        "matched_filter_spans": 11,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 92.30750184630207,
+          "target_rms": 0.00020825856690783126
+        },
+        "costas": {
+          "loop_bw": 0.01645689190994201
+        },
+        "gardner": {
+          "loop_bw": 0.08114293206131586
+        },
+        "sync": {
+          "crc_correction_max_bits": 1,
+          "loss_threshold": 12
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 64,
+      "score": 0.30078240409207163,
+      "config": {
+        "baseband_lpf_hz": 4978.054147965009,
+        "anti_alias_cutoff_hz": 4264.3939242146835,
+        "anti_alias_order": 5,
+        "matched_filter_spans": 14,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 47.016234665820335,
+          "target_rms": 0.012320256561413365
+        },
+        "costas": {
+          "loop_bw": 0.034588311099297844
+        },
+        "gardner": {
+          "loop_bw": 0.007034138373419885
+        },
+        "sync": {
+          "crc_correction_max_bits": 0,
+          "loss_threshold": 5
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 57,
+      "score": 0.8464537037037037,
+      "config": {
+        "baseband_lpf_hz": 5414.057869511416,
+        "anti_alias_cutoff_hz": 8921.37590009271,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 7,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 2.7028715356913726,
+          "target_rms": 0.06796453017820221
+        },
+        "costas": {
+          "loop_bw": 0.013655512760487001
+        },
+        "gardner": {
+          "loop_bw": 0.005043135766237136
+        },
+        "sync": {
+          "crc_correction_max_bits": 4,
+          "loss_threshold": 7
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 71,
+      "score": 0.26452111113068116,
+      "config": {
+        "baseband_lpf_hz": 3393.399296064029,
+        "anti_alias_cutoff_hz": 7995.313226315142,
+        "anti_alias_order": 6,
+        "matched_filter_spans": 15,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 6.450262160430936,
+          "target_rms": 0.0003492123753818773
+        },
+        "costas": {
+          "loop_bw": 0.01859194582841449
+        },
+        "gardner": {
+          "loop_bw": 0.08136552157376059
+        },
+        "sync": {
+          "crc_correction_max_bits": 5,
+          "loss_threshold": 7
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 65,
+      "score": 0.2957819749436937,
+      "config": {
+        "baseband_lpf_hz": 4761.099268680825,
+        "anti_alias_cutoff_hz": 8629.204662606418,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 12,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 2.073556135440395,
+          "target_rms": 0.0014437522786584299
+        },
+        "costas": {
+          "loop_bw": 0.11208046199422937
+        },
+        "gardner": {
+          "loop_bw": 0.022870889540702946
+        },
+        "sync": {
+          "crc_correction_max_bits": 4,
+          "loss_threshold": 7
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 66,
+      "score": 0.7875396825396824,
+      "config": {
+        "baseband_lpf_hz": 3538.9299150017187,
+        "anti_alias_cutoff_hz": 4181.444091520749,
+        "anti_alias_order": 5,
+        "matched_filter_spans": 16,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 1.3762152563273196,
+          "target_rms": 0.035275372259988655
+        },
+        "costas": {
+          "loop_bw": 0.1441542753927734
+        },
+        "gardner": {
+          "loop_bw": 0.04366045322807307
+        },
+        "sync": {
+          "crc_correction_max_bits": 1,
+          "loss_threshold": 12
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 70,
+      "score": 0.5075022888849502,
+      "config": {
+        "baseband_lpf_hz": 5122.847328581034,
+        "anti_alias_cutoff_hz": 7858.509246167477,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 4,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 11.536689460494683,
+          "target_rms": 0.02260679143194557
+        },
+        "costas": {
+          "loop_bw": 0.035600882732170915
+        },
+        "gardner": {
+          "loop_bw": 0.018139520843145348
+        },
+        "sync": {
+          "crc_correction_max_bits": 4,
+          "loss_threshold": 9
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 68,
+      "score": 0.6312483297022512,
+      "config": {
+        "baseband_lpf_hz": 4389.743158272026,
+        "anti_alias_cutoff_hz": 4476.443536527392,
+        "anti_alias_order": 6,
+        "matched_filter_spans": 16,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 1.3370248385396672,
+          "target_rms": 0.0016737528011891978
+        },
+        "costas": {
+          "loop_bw": 0.079001485541226
+        },
+        "gardner": {
+          "loop_bw": 0.06063837938366397
+        },
+        "sync": {
+          "crc_correction_max_bits": 2,
+          "loss_threshold": 15
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 69,
+      "score": 0.7026176548397136,
+      "config": {
+        "baseband_lpf_hz": 4482.279988951485,
+        "anti_alias_cutoff_hz": 8616.574320409516,
+        "anti_alias_order": 4,
+        "matched_filter_spans": 5,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 50.64833014004345,
+          "target_rms": 0.024423450324726786
+        },
+        "costas": {
+          "loop_bw": 0.045644555858651306
+        },
+        "gardner": {
+          "loop_bw": 0.07430046906703339
+        },
+        "sync": {
+          "crc_correction_max_bits": 2,
+          "loss_threshold": 12
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 67,
+      "score": 0.18990141103252237,
+      "config": {
+        "baseband_lpf_hz": 3422.6998954461433,
+        "anti_alias_cutoff_hz": 4722.748959882212,
+        "anti_alias_order": 1,
+        "matched_filter_spans": 14,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 21.946690010718378,
+          "target_rms": 0.0005279470873733573
+        },
+        "costas": {
+          "loop_bw": 0.022133735280982992
+        },
+        "gardner": {
+          "loop_bw": 0.012228470115660967
+        },
+        "sync": {
+          "crc_correction_max_bits": 2,
+          "loss_threshold": 13
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 72,
+      "score": 0.1708217701190451,
+      "config": {
+        "baseband_lpf_hz": 4212.239571752776,
+        "anti_alias_cutoff_hz": 8651.485551577029,
+        "anti_alias_order": 6,
+        "matched_filter_spans": 14,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 8.699192100220591,
+          "target_rms": 0.00027658548181426474
+        },
+        "costas": {
+          "loop_bw": 0.17812813542587258
+        },
+        "gardner": {
+          "loop_bw": 0.02192918596336897
+        },
+        "sync": {
+          "crc_correction_max_bits": 0,
+          "loss_threshold": 12
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 77,
+      "score": 0.3333333333333333,
+      "config": {
+        "baseband_lpf_hz": 4758.05923726557,
+        "anti_alias_cutoff_hz": 7257.989967243422,
+        "anti_alias_order": 4,
+        "matched_filter_spans": 14,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 70.43733598030276,
+          "target_rms": 0.060966443570860986
+        },
+        "costas": {
+          "loop_bw": 0.0114726503384449
+        },
+        "gardner": {
+          "loop_bw": 0.0799432738629752
+        },
+        "sync": {
+          "crc_correction_max_bits": 0,
+          "loss_threshold": 13
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 76,
+      "score": 0.6388833333333334,
+      "config": {
+        "baseband_lpf_hz": 4903.8551294898425,
+        "anti_alias_cutoff_hz": 5169.103860809526,
+        "anti_alias_order": 4,
+        "matched_filter_spans": 13,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 10.7446867829063,
+          "target_rms": 0.07653315162025126
+        },
+        "costas": {
+          "loop_bw": 0.02862985297419592
+        },
+        "gardner": {
+          "loop_bw": 0.013758362685119417
+        },
+        "sync": {
+          "crc_correction_max_bits": 3,
+          "loss_threshold": 5
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 74,
+      "score": 0.6194222945680351,
+      "config": {
+        "baseband_lpf_hz": 2698.8910829818783,
+        "anti_alias_cutoff_hz": 8973.377297018156,
+        "anti_alias_order": 4,
+        "matched_filter_spans": 6,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 1.698726021381595,
+          "target_rms": 0.008369452217516686
+        },
+        "costas": {
+          "loop_bw": 0.03019547153869292
+        },
+        "gardner": {
+          "loop_bw": 0.03352749507278112
+        },
+        "sync": {
+          "crc_correction_max_bits": 5,
+          "loss_threshold": 15
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 75,
+      "score": 0.37939008429458737,
+      "config": {
+        "baseband_lpf_hz": 4937.146444914064,
+        "anti_alias_cutoff_hz": 9450.159022829741,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 13,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 14.872247670051355,
+          "target_rms": 0.011297446787871286
+        },
+        "costas": {
+          "loop_bw": 0.18871917517666226
+        },
+        "gardner": {
+          "loop_bw": 0.012425886386931838
+        },
+        "sync": {
+          "crc_correction_max_bits": 4,
+          "loss_threshold": 5
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 73,
+      "score": 0.6276567950673786,
+      "config": {
+        "baseband_lpf_hz": 5439.414354107192,
+        "anti_alias_cutoff_hz": 7827.767410127255,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 6,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 9.812933258344584,
+          "target_rms": 0.01194854217211932
+        },
+        "costas": {
+          "loop_bw": 0.013629706197202109
+        },
+        "gardner": {
+          "loop_bw": 0.006243516170808835
+        },
+        "sync": {
+          "crc_correction_max_bits": 0,
+          "loss_threshold": 11
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 78,
+      "score": 0.5770159464462509,
+      "config": {
+        "baseband_lpf_hz": 5392.188442747563,
+        "anti_alias_cutoff_hz": 4075.809201280328,
+        "anti_alias_order": 6,
+        "matched_filter_spans": 12,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 2.912490736526879,
+          "target_rms": 0.01642430471657396
+        },
+        "costas": {
+          "loop_bw": 0.0354990185806116
+        },
+        "gardner": {
+          "loop_bw": 0.0606971976330029
+        },
+        "sync": {
+          "crc_correction_max_bits": 3,
+          "loss_threshold": 12
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 80,
+      "score": 0.03493693693693694,
+      "config": {
+        "baseband_lpf_hz": 4017.350673778713,
+        "anti_alias_cutoff_hz": 5627.899745239819,
+        "anti_alias_order": 6,
+        "matched_filter_spans": 13,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 1.4822487565183313,
+          "target_rms": 0.00011363567278586176
+        },
+        "costas": {
+          "loop_bw": 0.11547061620299323
+        },
+        "gardner": {
+          "loop_bw": 0.039047860368392355
+        },
+        "sync": {
+          "crc_correction_max_bits": 2,
+          "loss_threshold": 5
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 79,
+      "score": 0.13480726536098023,
+      "config": {
+        "baseband_lpf_hz": 4521.123928643121,
+        "anti_alias_cutoff_hz": 5808.76705932956,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 8,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 1.78009040528334,
+          "target_rms": 0.0008873975556381051
+        },
+        "costas": {
+          "loop_bw": 0.1448769932803923
+        },
+        "gardner": {
+          "loop_bw": 0.009906900130888486
+        },
+        "sync": {
+          "crc_correction_max_bits": 2,
+          "loss_threshold": 10
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 81,
+      "score": 0.19921027650131573,
+      "config": {
+        "baseband_lpf_hz": 5435.162179839128,
+        "anti_alias_cutoff_hz": 4981.265062487929,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 14,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 67.89034573282464,
+          "target_rms": 0.00046273630048836194
+        },
+        "costas": {
+          "loop_bw": 0.016234222785723992
+        },
+        "gardner": {
+          "loop_bw": 0.014492796101057933
+        },
+        "sync": {
+          "crc_correction_max_bits": 2,
+          "loss_threshold": 14
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 82,
+      "score": 0.20466384053621453,
+      "config": {
+        "baseband_lpf_hz": 4914.329695174627,
+        "anti_alias_cutoff_hz": 4530.123514294462,
+        "anti_alias_order": 4,
+        "matched_filter_spans": 15,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 53.37819622035029,
+          "target_rms": 0.001306692105036813
+        },
+        "costas": {
+          "loop_bw": 0.0957702174908335
+        },
+        "gardner": {
+          "loop_bw": 0.0059701222720878935
+        },
+        "sync": {
+          "crc_correction_max_bits": 1,
+          "loss_threshold": 11
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 83,
+      "score": 0.5471444136596104,
+      "config": {
+        "baseband_lpf_hz": 5736.4322314092315,
+        "anti_alias_cutoff_hz": 6410.818992706265,
+        "anti_alias_order": 6,
+        "matched_filter_spans": 15,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 4.165391330224729,
+          "target_rms": 0.01177408746890422
+        },
+        "costas": {
+          "loop_bw": 0.12617743524625424
+        },
+        "gardner": {
+          "loop_bw": 0.06485460260731364
+        },
+        "sync": {
+          "crc_correction_max_bits": 5,
+          "loss_threshold": 15
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 87,
+      "score": 0.24281041879035,
+      "config": {
+        "baseband_lpf_hz": 4786.269267771295,
+        "anti_alias_cutoff_hz": 5072.494998720943,
+        "anti_alias_order": 4,
+        "matched_filter_spans": 7,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 1.9325802016584832,
+          "target_rms": 0.015699477201853364
+        },
+        "costas": {
+          "loop_bw": 0.05749421761984457
+        },
+        "gardner": {
+          "loop_bw": 0.007118660320156014
+        },
+        "sync": {
+          "crc_correction_max_bits": 1,
+          "loss_threshold": 11
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 88,
+      "score": 0.24210436864409024,
+      "config": {
+        "baseband_lpf_hz": 2879.690716517717,
+        "anti_alias_cutoff_hz": 7025.231227774935,
+        "anti_alias_order": 2,
+        "matched_filter_spans": 10,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 1.2080668064525661,
+          "target_rms": 0.003951109265947341
+        },
+        "costas": {
+          "loop_bw": 0.011729016899413778
+        },
+        "gardner": {
+          "loop_bw": 0.019767190982137074
+        },
+        "sync": {
+          "crc_correction_max_bits": 5,
+          "loss_threshold": 4
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 86,
+      "score": 0.4756423741143725,
+      "config": {
+        "baseband_lpf_hz": 4884.289128079559,
+        "anti_alias_cutoff_hz": 7043.578370546902,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 15,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 31.62741611922649,
+          "target_rms": 0.002250548452200833
+        },
+        "costas": {
+          "loop_bw": 0.010755297266389676
+        },
+        "gardner": {
+          "loop_bw": 0.04284990764821468
+        },
+        "sync": {
+          "crc_correction_max_bits": 0,
+          "loss_threshold": 10
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 85,
+      "score": 0.1705166391579435,
+      "config": {
+        "baseband_lpf_hz": 5754.821832741205,
+        "anti_alias_cutoff_hz": 8437.492216326362,
+        "anti_alias_order": 4,
+        "matched_filter_spans": 5,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 84.54984124941967,
+          "target_rms": 0.0001190273631084478
+        },
+        "costas": {
+          "loop_bw": 0.02547580826782937
+        },
+        "gardner": {
+          "loop_bw": 0.047663772102820225
+        },
+        "sync": {
+          "crc_correction_max_bits": 2,
+          "loss_threshold": 14
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 84,
+      "score": 0.47735718829516544,
+      "config": {
+        "baseband_lpf_hz": 3479.1306345107564,
+        "anti_alias_cutoff_hz": 4872.606013655279,
+        "anti_alias_order": 4,
+        "matched_filter_spans": 16,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 15.271084945403498,
+          "target_rms": 0.0025132439863420676
+        },
+        "costas": {
+          "loop_bw": 0.0850279509622827
+        },
+        "gardner": {
+          "loop_bw": 0.09900624425604694
+        },
+        "sync": {
+          "crc_correction_max_bits": 4,
+          "loss_threshold": 15
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 91,
+      "score": 0.19324980417706517,
+      "config": {
+        "baseband_lpf_hz": 5558.280815753974,
+        "anti_alias_cutoff_hz": 6003.86999498168,
+        "anti_alias_order": 1,
+        "matched_filter_spans": 7,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 12.315169555078743,
+          "target_rms": 0.0004708912052768366
+        },
+        "costas": {
+          "loop_bw": 0.19221250337637652
+        },
+        "gardner": {
+          "loop_bw": 0.09880142923611057
+        },
+        "sync": {
+          "crc_correction_max_bits": 0,
+          "loss_threshold": 5
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 90,
+      "score": 0.6666666666666666,
+      "config": {
+        "baseband_lpf_hz": 5559.601335059774,
+        "anti_alias_cutoff_hz": 5615.064095742017,
+        "anti_alias_order": 6,
+        "matched_filter_spans": 16,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 3.154599303995916,
+          "target_rms": 0.07030751816238272
+        },
+        "costas": {
+          "loop_bw": 0.02822182349247486
+        },
+        "gardner": {
+          "loop_bw": 0.07325979804430596
+        },
+        "sync": {
+          "crc_correction_max_bits": 2,
+          "loss_threshold": 8
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 89,
+      "score": 0.1325757124819625,
+      "config": {
+        "baseband_lpf_hz": 2869.9627911645844,
+        "anti_alias_cutoff_hz": 5003.532969178259,
+        "anti_alias_order": 2,
+        "matched_filter_spans": 6,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 87.28055366404118,
+          "target_rms": 0.0016985869456524467
+        },
+        "costas": {
+          "loop_bw": 0.0870116842002065
+        },
+        "gardner": {
+          "loop_bw": 0.010711935352885128
+        },
+        "sync": {
+          "crc_correction_max_bits": 1,
+          "loss_threshold": 8
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 93,
+      "score": 0.2991743031787821,
+      "config": {
+        "baseband_lpf_hz": 4155.483359422885,
+        "anti_alias_cutoff_hz": 6368.25548081848,
+        "anti_alias_order": 5,
+        "matched_filter_spans": 5,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 3.8456309178168726,
+          "target_rms": 0.0013962890433065055
+        },
+        "costas": {
+          "loop_bw": 0.12707670472706928
+        },
+        "gardner": {
+          "loop_bw": 0.04388174886381518
+        },
+        "sync": {
+          "crc_correction_max_bits": 1,
+          "loss_threshold": 7
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 95,
+      "score": 0.15924565016280232,
+      "config": {
+        "baseband_lpf_hz": 4459.833022804121,
+        "anti_alias_cutoff_hz": 4338.461373552411,
+        "anti_alias_order": 2,
+        "matched_filter_spans": 10,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 11.22399345433737,
+          "target_rms": 0.0012077285323070037
+        },
+        "costas": {
+          "loop_bw": 0.023815799274154725
+        },
+        "gardner": {
+          "loop_bw": 0.007871427961627472
+        },
+        "sync": {
+          "crc_correction_max_bits": 2,
+          "loss_threshold": 10
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 94,
+      "score": 0.13070656210288414,
+      "config": {
+        "baseband_lpf_hz": 3078.5219201171226,
+        "anti_alias_cutoff_hz": 7025.174157835225,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 6,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 13.406216322823846,
+          "target_rms": 0.000124590406846349
+        },
+        "costas": {
+          "loop_bw": 0.07161371628582876
+        },
+        "gardner": {
+          "loop_bw": 0.00953056917447109
+        },
+        "sync": {
+          "crc_correction_max_bits": 0,
+          "loss_threshold": 5
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 92,
+      "score": 0.1442241762133413,
+      "config": {
+        "baseband_lpf_hz": 4752.518101385297,
+        "anti_alias_cutoff_hz": 4300.047645525968,
+        "anti_alias_order": 1,
+        "matched_filter_spans": 8,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 93.61752668792892,
+          "target_rms": 0.00011702304148779033
+        },
+        "costas": {
+          "loop_bw": 0.11584503281447514
+        },
+        "gardner": {
+          "loop_bw": 0.03710131525924514
+        },
+        "sync": {
+          "crc_correction_max_bits": 4,
+          "loss_threshold": 13
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 96,
+      "score": 0.4572407411553963,
+      "config": {
+        "baseband_lpf_hz": 5945.825211527072,
+        "anti_alias_cutoff_hz": 6794.524139498649,
+        "anti_alias_order": 2,
+        "matched_filter_spans": 6,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 15.258488614390304,
+          "target_rms": 0.010383945513020078
+        },
+        "costas": {
+          "loop_bw": 0.06141295440711487
+        },
+        "gardner": {
+          "loop_bw": 0.03494532399835038
+        },
+        "sync": {
+          "crc_correction_max_bits": 5,
+          "loss_threshold": 9
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 100,
+      "score": 0.3108142857142857,
+      "config": {
+        "baseband_lpf_hz": 4883.869393068762,
+        "anti_alias_cutoff_hz": 7527.016902888643,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 11,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 24.48600621190035,
+          "target_rms": 0.032852235789506606
+        },
+        "costas": {
+          "loop_bw": 0.17604138270641456
+        },
+        "gardner": {
+          "loop_bw": 0.014092203929721945
+        },
+        "sync": {
+          "crc_correction_max_bits": 3,
+          "loss_threshold": 3
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 101,
+      "score": 0.23092618135376755,
+      "config": {
+        "baseband_lpf_hz": 5634.296833689456,
+        "anti_alias_cutoff_hz": 8669.481550866578,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 4,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 11.645917697444833,
+          "target_rms": 0.00039429866287819283
+        },
+        "costas": {
+          "loop_bw": 0.02989439128823218
+        },
+        "gardner": {
+          "loop_bw": 0.019216065671225985
+        },
+        "sync": {
+          "crc_correction_max_bits": 5,
+          "loss_threshold": 11
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 97,
+      "score": 0.8361999999999999,
+      "config": {
+        "baseband_lpf_hz": 2643.5072469901443,
+        "anti_alias_cutoff_hz": 5545.366209319525,
+        "anti_alias_order": 2,
+        "matched_filter_spans": 11,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 83.13157701857384,
+          "target_rms": 0.0812869684875006
+        },
+        "costas": {
+          "loop_bw": 0.0538004481453098
+        },
+        "gardner": {
+          "loop_bw": 0.015409716234609645
+        },
+        "sync": {
+          "crc_correction_max_bits": 5,
+          "loss_threshold": 4
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 98,
+      "score": 0.21339501355428436,
+      "config": {
+        "baseband_lpf_hz": 4364.19591970454,
+        "anti_alias_cutoff_hz": 6997.206026977215,
+        "anti_alias_order": 6,
+        "matched_filter_spans": 10,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 18.95003907615186,
+          "target_rms": 0.009284258429108249
+        },
+        "costas": {
+          "loop_bw": 0.07068763442119794
+        },
+        "gardner": {
+          "loop_bw": 0.00876790671881233
+        },
+        "sync": {
+          "crc_correction_max_bits": 2,
+          "loss_threshold": 5
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 102,
+      "score": 0.3237078671328671,
+      "config": {
+        "baseband_lpf_hz": 4356.123558684439,
+        "anti_alias_cutoff_hz": 4483.233967725213,
+        "anti_alias_order": 4,
+        "matched_filter_spans": 12,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 24.282578541793967,
+          "target_rms": 0.000490263288437394
+        },
+        "costas": {
+          "loop_bw": 0.013549313553292289
+        },
+        "gardner": {
+          "loop_bw": 0.03279322719769029
+        },
+        "sync": {
+          "crc_correction_max_bits": 3,
+          "loss_threshold": 14
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 99,
+      "score": 0.17450725721333446,
+      "config": {
+        "baseband_lpf_hz": 5529.039198849649,
+        "anti_alias_cutoff_hz": 4880.885941490752,
+        "anti_alias_order": 1,
+        "matched_filter_spans": 14,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 21.50432786508179,
+          "target_rms": 0.0008457818288179072
+        },
+        "costas": {
+          "loop_bw": 0.08535056170562053
+        },
+        "gardner": {
+          "loop_bw": 0.006169590073384288
+        },
+        "sync": {
+          "crc_correction_max_bits": 1,
+          "loss_threshold": 9
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 103,
+      "score": 0.5037526847421584,
+      "config": {
+        "baseband_lpf_hz": 3828.690792218462,
+        "anti_alias_cutoff_hz": 5410.436860027903,
+        "anti_alias_order": 1,
+        "matched_filter_spans": 14,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 13.895132530560183,
+          "target_rms": 0.009036308694227063
+        },
+        "costas": {
+          "loop_bw": 0.021870138466830485
+        },
+        "gardner": {
+          "loop_bw": 0.06371015835913618
+        },
+        "sync": {
+          "crc_correction_max_bits": 3,
+          "loss_threshold": 8
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 104,
+      "score": 0.8247,
+      "config": {
+        "baseband_lpf_hz": 3821.4725677090546,
+        "anti_alias_cutoff_hz": 6934.143711330949,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 12,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 33.040452329232124,
+          "target_rms": 0.05114439266126652
+        },
+        "costas": {
+          "loop_bw": 0.04217648761273117
+        },
+        "gardner": {
+          "loop_bw": 0.010383436737617388
+        },
+        "sync": {
+          "crc_correction_max_bits": 2,
+          "loss_threshold": 6
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 110,
+      "score": 0.36870439297858654,
+      "config": {
+        "baseband_lpf_hz": 3805.2881040227003,
+        "anti_alias_cutoff_hz": 5534.840163239048,
+        "anti_alias_order": 2,
+        "matched_filter_spans": 4,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 3.369421237399546,
+          "target_rms": 0.0005385720046677764
+        },
+        "costas": {
+          "loop_bw": 0.025398744500156424
+        },
+        "gardner": {
+          "loop_bw": 0.0896054339818639
+        },
+        "sync": {
+          "crc_correction_max_bits": 3,
+          "loss_threshold": 9
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 107,
+      "score": 0.7545777777777777,
+      "config": {
+        "baseband_lpf_hz": 4483.139370422152,
+        "anti_alias_cutoff_hz": 8231.907832438392,
+        "anti_alias_order": 4,
+        "matched_filter_spans": 5,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 2.4696512149319076,
+          "target_rms": 0.04432608535178527
+        },
+        "costas": {
+          "loop_bw": 0.08762722521534017
+        },
+        "gardner": {
+          "loop_bw": 0.02865015265437985
+        },
+        "sync": {
+          "crc_correction_max_bits": 1,
+          "loss_threshold": 11
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 106,
+      "score": 0.12192717959098665,
+      "config": {
+        "baseband_lpf_hz": 5917.594067706357,
+        "anti_alias_cutoff_hz": 4657.908536085027,
+        "anti_alias_order": 5,
+        "matched_filter_spans": 12,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 3.3125508470675835,
+          "target_rms": 0.00030317096729545154
+        },
+        "costas": {
+          "loop_bw": 0.042000314816158624
+        },
+        "gardner": {
+          "loop_bw": 0.023950879351210885
+        },
+        "sync": {
+          "crc_correction_max_bits": 2,
+          "loss_threshold": 3
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 105,
+      "score": 0.251241826313137,
+      "config": {
+        "baseband_lpf_hz": 5714.446758173922,
+        "anti_alias_cutoff_hz": 5690.654572299562,
+        "anti_alias_order": 5,
+        "matched_filter_spans": 6,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 5.882906667650211,
+          "target_rms": 0.000703991859660569
+        },
+        "costas": {
+          "loop_bw": 0.040215143516110406
+        },
+        "gardner": {
+          "loop_bw": 0.00822832143432699
+        },
+        "sync": {
+          "crc_correction_max_bits": 4,
+          "loss_threshold": 15
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 109,
+      "score": 0.06400506294471812,
+      "config": {
+        "baseband_lpf_hz": 2634.082183795989,
+        "anti_alias_cutoff_hz": 5303.403860929185,
+        "anti_alias_order": 5,
+        "matched_filter_spans": 9,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 2.465829790602992,
+          "target_rms": 0.0002651442106387358
+        },
+        "costas": {
+          "loop_bw": 0.0602982701506163
+        },
+        "gardner": {
+          "loop_bw": 0.026541470094315307
+        },
+        "sync": {
+          "crc_correction_max_bits": 2,
+          "loss_threshold": 5
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 108,
+      "score": 0.1285751950592752,
+      "config": {
+        "baseband_lpf_hz": 4831.293259323686,
+        "anti_alias_cutoff_hz": 8684.894890051652,
+        "anti_alias_order": 4,
+        "matched_filter_spans": 13,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 45.340581103252674,
+          "target_rms": 0.0009489395232647606
+        },
+        "costas": {
+          "loop_bw": 0.010508588317435787
+        },
+        "gardner": {
+          "loop_bw": 0.005123965380224277
+        },
+        "sync": {
+          "crc_correction_max_bits": 4,
+          "loss_threshold": 8
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 111,
+      "score": 0.3333333333333333,
+      "config": {
+        "baseband_lpf_hz": 4950.625483790907,
+        "anti_alias_cutoff_hz": 8164.249437020547,
+        "anti_alias_order": 6,
+        "matched_filter_spans": 8,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 7.428154792496756,
+          "target_rms": 0.07071368916806592
+        },
+        "costas": {
+          "loop_bw": 0.022841063834274825
+        },
+        "gardner": {
+          "loop_bw": 0.0768944790550094
+        },
+        "sync": {
+          "crc_correction_max_bits": 3,
+          "loss_threshold": 11
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 112,
+      "score": 0.33456403330072054,
+      "config": {
+        "baseband_lpf_hz": 3231.3989937076294,
+        "anti_alias_cutoff_hz": 4816.547588722941,
+        "anti_alias_order": 2,
+        "matched_filter_spans": 16,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 2.1358534972940655,
+          "target_rms": 0.006244986706738797
+        },
+        "costas": {
+          "loop_bw": 0.01656167055744255
+        },
+        "gardner": {
+          "loop_bw": 0.015604204783773161
+        },
+        "sync": {
+          "crc_correction_max_bits": 4,
+          "loss_threshold": 5
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 114,
+      "score": 0.5703208781362007,
+      "config": {
+        "baseband_lpf_hz": 3332.377935790256,
+        "anti_alias_cutoff_hz": 6427.119502599919,
+        "anti_alias_order": 5,
+        "matched_filter_spans": 12,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 57.62059791489362,
+          "target_rms": 0.008572131199067416
+        },
+        "costas": {
+          "loop_bw": 0.07852507582074879
+        },
+        "gardner": {
+          "loop_bw": 0.031843829674632944
+        },
+        "sync": {
+          "crc_correction_max_bits": 1,
+          "loss_threshold": 10
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 113,
+      "score": 0.12357133304292668,
+      "config": {
+        "baseband_lpf_hz": 3664.1117962985654,
+        "anti_alias_cutoff_hz": 8981.720051731803,
+        "anti_alias_order": 2,
+        "matched_filter_spans": 9,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 50.269220232334895,
+          "target_rms": 0.0009726862996632907
+        },
+        "costas": {
+          "loop_bw": 0.012277080748514694
+        },
+        "gardner": {
+          "loop_bw": 0.00838752635382753
+        },
+        "sync": {
+          "crc_correction_max_bits": 3,
+          "loss_threshold": 5
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 120,
+      "score": 0.1701290417852691,
+      "config": {
+        "baseband_lpf_hz": 4104.945389437771,
+        "anti_alias_cutoff_hz": 9241.768485930968,
+        "anti_alias_order": 1,
+        "matched_filter_spans": 12,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 17.686589269254505,
+          "target_rms": 0.0013392854061330649
+        },
+        "costas": {
+          "loop_bw": 0.0161432612459647
+        },
+        "gardner": {
+          "loop_bw": 0.007861115476779857
+        },
+        "sync": {
+          "crc_correction_max_bits": 5,
+          "loss_threshold": 7
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 116,
+      "score": 0.5332945652173913,
+      "config": {
+        "baseband_lpf_hz": 3691.2545078271105,
+        "anti_alias_cutoff_hz": 7337.29149409642,
+        "anti_alias_order": 1,
+        "matched_filter_spans": 8,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 2.896320981137964,
+          "target_rms": 0.03869008212946872
+        },
+        "costas": {
+          "loop_bw": 0.03245058598212747
+        },
+        "gardner": {
+          "loop_bw": 0.009188075757737816
+        },
+        "sync": {
+          "crc_correction_max_bits": 5,
+          "loss_threshold": 13
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 118,
+      "score": 0.3761455945186325,
+      "config": {
+        "baseband_lpf_hz": 4225.591774981032,
+        "anti_alias_cutoff_hz": 4475.60724091702,
+        "anti_alias_order": 6,
+        "matched_filter_spans": 12,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 1.172077285111112,
+          "target_rms": 0.003370169002816834
+        },
+        "costas": {
+          "loop_bw": 0.07516639897232265
+        },
+        "gardner": {
+          "loop_bw": 0.018126702050233066
+        },
+        "sync": {
+          "crc_correction_max_bits": 4,
+          "loss_threshold": 12
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 117,
+      "score": 0.6338247863247862,
+      "config": {
+        "baseband_lpf_hz": 5710.631906180939,
+        "anti_alias_cutoff_hz": 7902.421273813927,
+        "anti_alias_order": 1,
+        "matched_filter_spans": 11,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 13.354862574379975,
+          "target_rms": 0.016484818159546954
+        },
+        "costas": {
+          "loop_bw": 0.07102374442225882
+        },
+        "gardner": {
+          "loop_bw": 0.02440056572916084
+        },
+        "sync": {
+          "crc_correction_max_bits": 1,
+          "loss_threshold": 4
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 119,
+      "score": 0.5034842807855627,
+      "config": {
+        "baseband_lpf_hz": 3130.1769406319713,
+        "anti_alias_cutoff_hz": 4599.249396192843,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 13,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 1.572777757531967,
+          "target_rms": 0.011819963089708212
+        },
+        "costas": {
+          "loop_bw": 0.04235534611706067
+        },
+        "gardner": {
+          "loop_bw": 0.007844286881062725
+        },
+        "sync": {
+          "crc_correction_max_bits": 0,
+          "loss_threshold": 15
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 115,
+      "score": 0.40338220210232406,
+      "config": {
+        "baseband_lpf_hz": 4627.324646437074,
+        "anti_alias_cutoff_hz": 6152.188639539454,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 10,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 5.669214744200488,
+          "target_rms": 0.007509151626940064
+        },
+        "costas": {
+          "loop_bw": 0.024184419624437722
+        },
+        "gardner": {
+          "loop_bw": 0.010183676256842331
+        },
+        "sync": {
+          "crc_correction_max_bits": 1,
+          "loss_threshold": 8
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 121,
+      "score": 0.3080601508828784,
+      "config": {
+        "baseband_lpf_hz": 2821.3451054015336,
+        "anti_alias_cutoff_hz": 5574.669954525227,
+        "anti_alias_order": 1,
+        "matched_filter_spans": 16,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 5.063112996703981,
+          "target_rms": 0.0003149835129064329
+        },
+        "costas": {
+          "loop_bw": 0.01009686674864137
+        },
+        "gardner": {
+          "loop_bw": 0.07675138830406654
+        },
+        "sync": {
+          "crc_correction_max_bits": 4,
+          "loss_threshold": 10
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 122,
+      "score": 0.35218145129897604,
+      "config": {
+        "baseband_lpf_hz": 5088.28126604351,
+        "anti_alias_cutoff_hz": 5885.3653520593725,
+        "anti_alias_order": 5,
+        "matched_filter_spans": 16,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 7.622863167865457,
+          "target_rms": 0.000540358832180807
+        },
+        "costas": {
+          "loop_bw": 0.107780488775579
+        },
+        "gardner": {
+          "loop_bw": 0.08797830295761606
+        },
+        "sync": {
+          "crc_correction_max_bits": 3,
+          "loss_threshold": 11
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 128,
+      "score": 0.2098109124429646,
+      "config": {
+        "baseband_lpf_hz": 4138.564565412526,
+        "anti_alias_cutoff_hz": 6193.323812998973,
+        "anti_alias_order": 1,
+        "matched_filter_spans": 8,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 5.413735203807926,
+          "target_rms": 0.005452462892514711
+        },
+        "costas": {
+          "loop_bw": 0.10101159260592435
+        },
+        "gardner": {
+          "loop_bw": 0.0334200227959702
+        },
+        "sync": {
+          "crc_correction_max_bits": 5,
+          "loss_threshold": 3
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 123,
+      "score": 0.5962812274774775,
+      "config": {
+        "baseband_lpf_hz": 5677.606721368438,
+        "anti_alias_cutoff_hz": 4405.203335783773,
+        "anti_alias_order": 4,
+        "matched_filter_spans": 10,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 1.287073190608966,
+          "target_rms": 0.01623361060987373
+        },
+        "costas": {
+          "loop_bw": 0.05145184479839667
+        },
+        "gardner": {
+          "loop_bw": 0.015424975934234543
+        },
+        "sync": {
+          "crc_correction_max_bits": 3,
+          "loss_threshold": 8
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 127,
+      "score": 0.49025590989882417,
+      "config": {
+        "baseband_lpf_hz": 5492.232967870432,
+        "anti_alias_cutoff_hz": 4986.993553227302,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 13,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 1.4757577576532885,
+          "target_rms": 0.006005473195198154
+        },
+        "costas": {
+          "loop_bw": 0.07030161235682567
+        },
+        "gardner": {
+          "loop_bw": 0.016187686376330928
+        },
+        "sync": {
+          "crc_correction_max_bits": 3,
+          "loss_threshold": 12
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 126,
+      "score": 0.5293907074578214,
+      "config": {
+        "baseband_lpf_hz": 4523.676960810406,
+        "anti_alias_cutoff_hz": 7335.544389643648,
+        "anti_alias_order": 1,
+        "matched_filter_spans": 9,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 5.77696925251488,
+          "target_rms": 0.00428529438514365
+        },
+        "costas": {
+          "loop_bw": 0.14059672054896352
+        },
+        "gardner": {
+          "loop_bw": 0.06645566693326961
+        },
+        "sync": {
+          "crc_correction_max_bits": 3,
+          "loss_threshold": 13
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 125,
+      "score": 0.5327438248026484,
+      "config": {
+        "baseband_lpf_hz": 4939.019664625202,
+        "anti_alias_cutoff_hz": 5412.855842115261,
+        "anti_alias_order": 1,
+        "matched_filter_spans": 6,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 1.35528923271851,
+          "target_rms": 0.002084017058281997
+        },
+        "costas": {
+          "loop_bw": 0.047723136209810633
+        },
+        "gardner": {
+          "loop_bw": 0.05960603218271388
+        },
+        "sync": {
+          "crc_correction_max_bits": 5,
+          "loss_threshold": 12
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 124,
+      "score": 0.28757818224923487,
+      "config": {
+        "baseband_lpf_hz": 4909.69060026254,
+        "anti_alias_cutoff_hz": 4212.461537877158,
+        "anti_alias_order": 2,
+        "matched_filter_spans": 6,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 14.211760365676671,
+          "target_rms": 0.0017625574086147955
+        },
+        "costas": {
+          "loop_bw": 0.06950016328295439
+        },
+        "gardner": {
+          "loop_bw": 0.018904324483002992
+        },
+        "sync": {
+          "crc_correction_max_bits": 5,
+          "loss_threshold": 15
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 131,
+      "score": 0.29171748398698755,
+      "config": {
+        "baseband_lpf_hz": 5774.522616219805,
+        "anti_alias_cutoff_hz": 5288.606622592205,
+        "anti_alias_order": 5,
+        "matched_filter_spans": 15,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 26.538423149819806,
+          "target_rms": 0.0006592210960709903
+        },
+        "costas": {
+          "loop_bw": 0.10468000624072016
+        },
+        "gardner": {
+          "loop_bw": 0.04868762906731642
+        },
+        "sync": {
+          "crc_correction_max_bits": 4,
+          "loss_threshold": 8
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 130,
+      "score": 0.18278589720922644,
+      "config": {
+        "baseband_lpf_hz": 4455.078286980644,
+        "anti_alias_cutoff_hz": 6494.228173244817,
+        "anti_alias_order": 6,
+        "matched_filter_spans": 12,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 67.23565861907615,
+          "target_rms": 0.00016873145334583278
+        },
+        "costas": {
+          "loop_bw": 0.17957085870166523
+        },
+        "gardner": {
+          "loop_bw": 0.03160386249598322
+        },
+        "sync": {
+          "crc_correction_max_bits": 5,
+          "loss_threshold": 15
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 133,
+      "score": 0.13304081333552487,
+      "config": {
+        "baseband_lpf_hz": 5212.4283290830435,
+        "anti_alias_cutoff_hz": 8935.315653439404,
+        "anti_alias_order": 4,
+        "matched_filter_spans": 9,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 3.0634780152248253,
+          "target_rms": 0.0013366375760168515
+        },
+        "costas": {
+          "loop_bw": 0.02578203646598739
+        },
+        "gardner": {
+          "loop_bw": 0.005382077456968023
+        },
+        "sync": {
+          "crc_correction_max_bits": 1,
+          "loss_threshold": 4
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 134,
+      "score": 0.18470778799420817,
+      "config": {
+        "baseband_lpf_hz": 2902.232665167421,
+        "anti_alias_cutoff_hz": 7726.97871214327,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 8,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 1.3264315243841782,
+          "target_rms": 0.00022609314755914447
+        },
+        "costas": {
+          "loop_bw": 0.01656337893272943
+        },
+        "gardner": {
+          "loop_bw": 0.006258560890275822
+        },
+        "sync": {
+          "crc_correction_max_bits": 2,
+          "loss_threshold": 6
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 135,
+      "score": 0.13052571593521803,
+      "config": {
+        "baseband_lpf_hz": 3128.581835167781,
+        "anti_alias_cutoff_hz": 5507.043437012984,
+        "anti_alias_order": 1,
+        "matched_filter_spans": 5,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 5.488211940587398,
+          "target_rms": 0.005943378083215836
+        },
+        "costas": {
+          "loop_bw": 0.020242622253411793
+        },
+        "gardner": {
+          "loop_bw": 0.005416751764742522
+        },
+        "sync": {
+          "crc_correction_max_bits": 3,
+          "loss_threshold": 3
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 129,
+      "score": 0.11458396268023747,
+      "config": {
+        "baseband_lpf_hz": 5933.460212640186,
+        "anti_alias_cutoff_hz": 8664.91903508787,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 11,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 1.9614777670921404,
+          "target_rms": 0.0010683594608878549
+        },
+        "costas": {
+          "loop_bw": 0.021715869946677364
+        },
+        "gardner": {
+          "loop_bw": 0.03779211157902176
+        },
+        "sync": {
+          "crc_correction_max_bits": 0,
+          "loss_threshold": 3
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 132,
+      "score": 0.10483175240681523,
+      "config": {
+        "baseband_lpf_hz": 3267.4144737878514,
+        "anti_alias_cutoff_hz": 7745.249227479903,
+        "anti_alias_order": 6,
+        "matched_filter_spans": 16,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 1.2996345384868702,
+          "target_rms": 0.0005441450990842677
+        },
+        "costas": {
+          "loop_bw": 0.04014883673152167
+        },
+        "gardner": {
+          "loop_bw": 0.005507668312328757
+        },
+        "sync": {
+          "crc_correction_max_bits": 3,
+          "loss_threshold": 5
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 136,
+      "score": 0.5056685960591133,
+      "config": {
+        "baseband_lpf_hz": 3725.635097633231,
+        "anti_alias_cutoff_hz": 9245.806330221949,
+        "anti_alias_order": 5,
+        "matched_filter_spans": 4,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 57.75052715773563,
+          "target_rms": 0.06308695105963415
+        },
+        "costas": {
+          "loop_bw": 0.02284235841176565
+        },
+        "gardner": {
+          "loop_bw": 0.024873770253564347
+        },
+        "sync": {
+          "crc_correction_max_bits": 4,
+          "loss_threshold": 6
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 138,
+      "score": 0.5205406144781145,
+      "config": {
+        "baseband_lpf_hz": 3813.3568426170186,
+        "anti_alias_cutoff_hz": 5289.805576306089,
+        "anti_alias_order": 6,
+        "matched_filter_spans": 6,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 51.09106800553084,
+          "target_rms": 0.031905721154370306
+        },
+        "costas": {
+          "loop_bw": 0.09590236451691203
+        },
+        "gardner": {
+          "loop_bw": 0.03328604518876043
+        },
+        "sync": {
+          "crc_correction_max_bits": 5,
+          "loss_threshold": 11
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 141,
+      "score": 0.19430459092401564,
+      "config": {
+        "baseband_lpf_hz": 5802.867617327718,
+        "anti_alias_cutoff_hz": 9171.069651892427,
+        "anti_alias_order": 4,
+        "matched_filter_spans": 12,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 5.1393756727715,
+          "target_rms": 0.00024015298587500158
+        },
+        "costas": {
+          "loop_bw": 0.014751207154634783
+        },
+        "gardner": {
+          "loop_bw": 0.0324768189244146
+        },
+        "sync": {
+          "crc_correction_max_bits": 4,
+          "loss_threshold": 8
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 144,
+      "score": 0.28797079775260254,
+      "config": {
+        "baseband_lpf_hz": 2973.9278464069953,
+        "anti_alias_cutoff_hz": 4941.96386438042,
+        "anti_alias_order": 2,
+        "matched_filter_spans": 7,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 69.0357313885525,
+          "target_rms": 0.00206880360204426
+        },
+        "costas": {
+          "loop_bw": 0.19251145613073947
+        },
+        "gardner": {
+          "loop_bw": 0.012363798840814327
+        },
+        "sync": {
+          "crc_correction_max_bits": 5,
+          "loss_threshold": 10
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 137,
+      "score": 0.11208133133133132,
+      "config": {
+        "baseband_lpf_hz": 4097.93695991046,
+        "anti_alias_cutoff_hz": 7007.586103152376,
+        "anti_alias_order": 6,
+        "matched_filter_spans": 11,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 25.247635868066016,
+          "target_rms": 0.000149630660950073
+        },
+        "costas": {
+          "loop_bw": 0.023823917784421354
+        },
+        "gardner": {
+          "loop_bw": 0.007628481846000654
+        },
+        "sync": {
+          "crc_correction_max_bits": 0,
+          "loss_threshold": 7
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 142,
+      "score": 0.2289879780700159,
+      "config": {
+        "baseband_lpf_hz": 3927.745206350586,
+        "anti_alias_cutoff_hz": 7996.499305028996,
+        "anti_alias_order": 5,
+        "matched_filter_spans": 12,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 29.505852269079757,
+          "target_rms": 0.004172639887685162
+        },
+        "costas": {
+          "loop_bw": 0.014588290096626358
+        },
+        "gardner": {
+          "loop_bw": 0.007780443981036687
+        },
+        "sync": {
+          "crc_correction_max_bits": 2,
+          "loss_threshold": 6
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 143,
+      "score": 0.8233444444444444,
+      "config": {
+        "baseband_lpf_hz": 2846.1032146080133,
+        "anti_alias_cutoff_hz": 8075.025859719384,
+        "anti_alias_order": 2,
+        "matched_filter_spans": 9,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 61.08731890745588,
+          "target_rms": 0.054726205732648796
+        },
+        "costas": {
+          "loop_bw": 0.010091975375222866
+        },
+        "gardner": {
+          "loop_bw": 0.023093670376806038
+        },
+        "sync": {
+          "crc_correction_max_bits": 1,
+          "loss_threshold": 14
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 139,
+      "score": 0.5217080044593089,
+      "config": {
+        "baseband_lpf_hz": 2615.980325044467,
+        "anti_alias_cutoff_hz": 5971.490079918169,
+        "anti_alias_order": 4,
+        "matched_filter_spans": 10,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 4.627606978802478,
+          "target_rms": 0.03914947503935303
+        },
+        "costas": {
+          "loop_bw": 0.04794475705377356
+        },
+        "gardner": {
+          "loop_bw": 0.029557153711968515
+        },
+        "sync": {
+          "crc_correction_max_bits": 5,
+          "loss_threshold": 8
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 140,
+      "score": 0.22441067912467338,
+      "config": {
+        "baseband_lpf_hz": 5378.8495786552085,
+        "anti_alias_cutoff_hz": 4423.900640374056,
+        "anti_alias_order": 4,
+        "matched_filter_spans": 9,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 74.73958109459535,
+          "target_rms": 0.0008488254945033041
+        },
+        "costas": {
+          "loop_bw": 0.04537224563401752
+        },
+        "gardner": {
+          "loop_bw": 0.008904835644068548
+        },
+        "sync": {
+          "crc_correction_max_bits": 4,
+          "loss_threshold": 11
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 151,
+      "score": 0.29965838767164765,
+      "config": {
+        "baseband_lpf_hz": 3239.0974286334867,
+        "anti_alias_cutoff_hz": 5023.004910069705,
+        "anti_alias_order": 2,
+        "matched_filter_spans": 16,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 1.0876770613417734,
+          "target_rms": 0.0003240087991833443
+        },
+        "costas": {
+          "loop_bw": 0.013477688026698981
+        },
+        "gardner": {
+          "loop_bw": 0.06762784138070978
+        },
+        "sync": {
+          "crc_correction_max_bits": 4,
+          "loss_threshold": 10
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 150,
+      "score": 0.33827687932437933,
+      "config": {
+        "baseband_lpf_hz": 3724.1837985675384,
+        "anti_alias_cutoff_hz": 8652.916943083883,
+        "anti_alias_order": 6,
+        "matched_filter_spans": 8,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 30.785150183271274,
+          "target_rms": 0.003773891280212658
+        },
+        "costas": {
+          "loop_bw": 0.027550633825374905
+        },
+        "gardner": {
+          "loop_bw": 0.010933573715012152
+        },
+        "sync": {
+          "crc_correction_max_bits": 5,
+          "loss_threshold": 9
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 146,
+      "score": 0.22491565656565657,
+      "config": {
+        "baseband_lpf_hz": 4396.868161682107,
+        "anti_alias_cutoff_hz": 5905.710853330764,
+        "anti_alias_order": 1,
+        "matched_filter_spans": 8,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 32.672320144321375,
+          "target_rms": 0.00022440428986157337
+        },
+        "costas": {
+          "loop_bw": 0.0315879396336488
+        },
+        "gardner": {
+          "loop_bw": 0.008627799525153128
+        },
+        "sync": {
+          "crc_correction_max_bits": 5,
+          "loss_threshold": 14
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 147,
+      "score": 0.68,
+      "config": {
+        "baseband_lpf_hz": 5677.126378067895,
+        "anti_alias_cutoff_hz": 5184.759117543896,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 15,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 3.951174625228719,
+          "target_rms": 0.095158842429384
+        },
+        "costas": {
+          "loop_bw": 0.10464716560896595
+        },
+        "gardner": {
+          "loop_bw": 0.04796683367698243
+        },
+        "sync": {
+          "crc_correction_max_bits": 4,
+          "loss_threshold": 4
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 149,
+      "score": 0.1558433148134035,
+      "config": {
+        "baseband_lpf_hz": 4842.121361926776,
+        "anti_alias_cutoff_hz": 5946.316299843719,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 13,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 1.1475601052719018,
+          "target_rms": 0.0007075264005933979
+        },
+        "costas": {
+          "loop_bw": 0.01598908511238865
+        },
+        "gardner": {
+          "loop_bw": 0.007962607665446217
+        },
+        "sync": {
+          "crc_correction_max_bits": 1,
+          "loss_threshold": 4
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 148,
+      "score": 0.5353705544141986,
+      "config": {
+        "baseband_lpf_hz": 3658.2492492272586,
+        "anti_alias_cutoff_hz": 6184.459914303446,
+        "anti_alias_order": 2,
+        "matched_filter_spans": 10,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 5.393456233329707,
+          "target_rms": 0.0337351816437061
+        },
+        "costas": {
+          "loop_bw": 0.1577478583428692
+        },
+        "gardner": {
+          "loop_bw": 0.019975016072173425
+        },
+        "sync": {
+          "crc_correction_max_bits": 5,
+          "loss_threshold": 12
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 152,
+      "score": 0.5429161479406578,
+      "config": {
+        "baseband_lpf_hz": 4806.757142177834,
+        "anti_alias_cutoff_hz": 9002.882266388933,
+        "anti_alias_order": 5,
+        "matched_filter_spans": 6,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 16.0761731318745,
+          "target_rms": 0.01737271486451925
+        },
+        "costas": {
+          "loop_bw": 0.1409155857730664
+        },
+        "gardner": {
+          "loop_bw": 0.025894794561549004
+        },
+        "sync": {
+          "crc_correction_max_bits": 4,
+          "loss_threshold": 11
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 145,
+      "score": 0.3196714556469354,
+      "config": {
+        "baseband_lpf_hz": 3989.1941971481483,
+        "anti_alias_cutoff_hz": 8582.501774806202,
+        "anti_alias_order": 2,
+        "matched_filter_spans": 15,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 27.693399070351806,
+          "target_rms": 0.0122589130205526
+        },
+        "costas": {
+          "loop_bw": 0.17748693937598106
+        },
+        "gardner": {
+          "loop_bw": 0.007306372237006149
+        },
+        "sync": {
+          "crc_correction_max_bits": 0,
+          "loss_threshold": 4
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 155,
+      "score": 0.7119152777777779,
+      "config": {
+        "baseband_lpf_hz": 5611.4792889745695,
+        "anti_alias_cutoff_hz": 8214.045568845968,
+        "anti_alias_order": 2,
+        "matched_filter_spans": 13,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 14.089805819803361,
+          "target_rms": 0.03609198474718051
+        },
+        "costas": {
+          "loop_bw": 0.026504359905423987
+        },
+        "gardner": {
+          "loop_bw": 0.007150541161831139
+        },
+        "sync": {
+          "crc_correction_max_bits": 0,
+          "loss_threshold": 8
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 154,
+      "score": 0.5298813954610259,
+      "config": {
+        "baseband_lpf_hz": 4841.132974074577,
+        "anti_alias_cutoff_hz": 5688.125343214117,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 13,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 62.25378786699784,
+          "target_rms": 0.003641585753868444
+        },
+        "costas": {
+          "loop_bw": 0.08442630678107628
+        },
+        "gardner": {
+          "loop_bw": 0.038398901840223
+        },
+        "sync": {
+          "crc_correction_max_bits": 1,
+          "loss_threshold": 14
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 157,
+      "score": 0.7515463327190147,
+      "config": {
+        "baseband_lpf_hz": 5316.817820981469,
+        "anti_alias_cutoff_hz": 5337.4344703604775,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 5,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 6.322959772278737,
+          "target_rms": 0.005637932840564022
+        },
+        "costas": {
+          "loop_bw": 0.022611894810273186
+        },
+        "gardner": {
+          "loop_bw": 0.09571950821359393
+        },
+        "sync": {
+          "crc_correction_max_bits": 0,
+          "loss_threshold": 14
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 158,
+      "score": 0.16059677519910046,
+      "config": {
+        "baseband_lpf_hz": 5018.036150505826,
+        "anti_alias_cutoff_hz": 8304.601455952004,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 8,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 11.534834089991548,
+          "target_rms": 0.0006507882010602244
+        },
+        "costas": {
+          "loop_bw": 0.0812221208617702
+        },
+        "gardner": {
+          "loop_bw": 0.005473923827288272
+        },
+        "sync": {
+          "crc_correction_max_bits": 5,
+          "loss_threshold": 12
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 156,
+      "score": 0.3212264433811802,
+      "config": {
+        "baseband_lpf_hz": 5081.932319568361,
+        "anti_alias_cutoff_hz": 7466.858354450247,
+        "anti_alias_order": 1,
+        "matched_filter_spans": 10,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 1.1626131307962522,
+          "target_rms": 0.007285458266585706
+        },
+        "costas": {
+          "loop_bw": 0.015930603496189685
+        },
+        "gardner": {
+          "loop_bw": 0.01942912178471862
+        },
+        "sync": {
+          "crc_correction_max_bits": 0,
+          "loss_threshold": 6
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 153,
+      "score": 0.3928115605459355,
+      "config": {
+        "baseband_lpf_hz": 5863.422948351101,
+        "anti_alias_cutoff_hz": 7012.722760533117,
+        "anti_alias_order": 5,
+        "matched_filter_spans": 10,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 12.514700429451434,
+          "target_rms": 0.0011734728340635566
+        },
+        "costas": {
+          "loop_bw": 0.03347804012563179
+        },
+        "gardner": {
+          "loop_bw": 0.09423536246934554
+        },
+        "sync": {
+          "crc_correction_max_bits": 4,
+          "loss_threshold": 13
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 160,
+      "score": 0.1386978114239408,
+      "config": {
+        "baseband_lpf_hz": 3658.452232796617,
+        "anti_alias_cutoff_hz": 6797.5730597028505,
+        "anti_alias_order": 5,
+        "matched_filter_spans": 5,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 2.7129998109205875,
+          "target_rms": 0.00013546757221668003
+        },
+        "costas": {
+          "loop_bw": 0.016131282454991777
+        },
+        "gardner": {
+          "loop_bw": 0.010426664348231831
+        },
+        "sync": {
+          "crc_correction_max_bits": 2,
+          "loss_threshold": 11
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 159,
+      "score": 0.5760796231546231,
+      "config": {
+        "baseband_lpf_hz": 5302.963861511774,
+        "anti_alias_cutoff_hz": 7299.3839952586095,
+        "anti_alias_order": 6,
+        "matched_filter_spans": 9,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 42.87770861437818,
+          "target_rms": 0.05893883257439499
+        },
+        "costas": {
+          "loop_bw": 0.013949818958677624
+        },
+        "gardner": {
+          "loop_bw": 0.02851731607479385
+        },
+        "sync": {
+          "crc_correction_max_bits": 3,
+          "loss_threshold": 10
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 165,
+      "score": 0.5508812009763336,
+      "config": {
+        "baseband_lpf_hz": 4741.661316962642,
+        "anti_alias_cutoff_hz": 5004.247538014986,
+        "anti_alias_order": 1,
+        "matched_filter_spans": 5,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 5.914437831776373,
+          "target_rms": 0.0040425197494375195
+        },
+        "costas": {
+          "loop_bw": 0.09543915294141952
+        },
+        "gardner": {
+          "loop_bw": 0.04970128342113744
+        },
+        "sync": {
+          "crc_correction_max_bits": 2,
+          "loss_threshold": 14
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 168,
+      "score": 0.10824518512036656,
+      "config": {
+        "baseband_lpf_hz": 5675.255034954578,
+        "anti_alias_cutoff_hz": 6978.749810627511,
+        "anti_alias_order": 5,
+        "matched_filter_spans": 9,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 3.710469542426461,
+          "target_rms": 0.00014225033001316094
+        },
+        "costas": {
+          "loop_bw": 0.03760093349469429
+        },
+        "gardner": {
+          "loop_bw": 0.0051556209466034645
+        },
+        "sync": {
+          "crc_correction_max_bits": 1,
+          "loss_threshold": 12
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 167,
+      "score": 0.1354749020181579,
+      "config": {
+        "baseband_lpf_hz": 2920.8184593224396,
+        "anti_alias_cutoff_hz": 4168.478946225851,
+        "anti_alias_order": 1,
+        "matched_filter_spans": 8,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 31.099158951513207,
+          "target_rms": 0.00031311287794808494
+        },
+        "costas": {
+          "loop_bw": 0.02469526661649356
+        },
+        "gardner": {
+          "loop_bw": 0.06127722942733487
+        },
+        "sync": {
+          "crc_correction_max_bits": 2,
+          "loss_threshold": 11
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 164,
+      "score": 0.15947991001220999,
+      "config": {
+        "baseband_lpf_hz": 3715.8658974587815,
+        "anti_alias_cutoff_hz": 4232.595338123232,
+        "anti_alias_order": 4,
+        "matched_filter_spans": 15,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 33.09841620319443,
+          "target_rms": 0.00036898695604559644
+        },
+        "costas": {
+          "loop_bw": 0.08786656802186134
+        },
+        "gardner": {
+          "loop_bw": 0.024688186208181594
+        },
+        "sync": {
+          "crc_correction_max_bits": 0,
+          "loss_threshold": 5
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 161,
+      "score": 0.4698470494136278,
+      "config": {
+        "baseband_lpf_hz": 4433.993971582839,
+        "anti_alias_cutoff_hz": 8321.972792079827,
+        "anti_alias_order": 5,
+        "matched_filter_spans": 9,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 26.26323219720395,
+          "target_rms": 0.0014555455609310658
+        },
+        "costas": {
+          "loop_bw": 0.16229102314433388
+        },
+        "gardner": {
+          "loop_bw": 0.0780716040188851
+        },
+        "sync": {
+          "crc_correction_max_bits": 2,
+          "loss_threshold": 11
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 162,
+      "score": 0.13072756666835553,
+      "config": {
+        "baseband_lpf_hz": 4985.820860811082,
+        "anti_alias_cutoff_hz": 6676.046042833295,
+        "anti_alias_order": 1,
+        "matched_filter_spans": 13,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 24.191810631715185,
+          "target_rms": 0.00011769175058666588
+        },
+        "costas": {
+          "loop_bw": 0.02733952680921305
+        },
+        "gardner": {
+          "loop_bw": 0.08271881614890841
+        },
+        "sync": {
+          "crc_correction_max_bits": 4,
+          "loss_threshold": 12
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 163,
+      "score": 0.05064431088508759,
+      "config": {
+        "baseband_lpf_hz": 5132.874056215003,
+        "anti_alias_cutoff_hz": 4303.0298024892845,
+        "anti_alias_order": 1,
+        "matched_filter_spans": 12,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 35.80135898893495,
+          "target_rms": 0.0012304203671801566
+        },
+        "costas": {
+          "loop_bw": 0.07415697162314627
+        },
+        "gardner": {
+          "loop_bw": 0.005282866325173691
+        },
+        "sync": {
+          "crc_correction_max_bits": 5,
+          "loss_threshold": 3
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 166,
+      "score": 0.16791522256910696,
+      "config": {
+        "baseband_lpf_hz": 4595.577046872097,
+        "anti_alias_cutoff_hz": 6310.137591940566,
+        "anti_alias_order": 2,
+        "matched_filter_spans": 16,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 10.071152373697739,
+          "target_rms": 0.001027825942764941
+        },
+        "costas": {
+          "loop_bw": 0.031681782733915156
+        },
+        "gardner": {
+          "loop_bw": 0.013211733833916443
+        },
+        "sync": {
+          "crc_correction_max_bits": 2,
+          "loss_threshold": 9
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 173,
+      "score": 0.6666666666666666,
+      "config": {
+        "baseband_lpf_hz": 5836.003582558778,
+        "anti_alias_cutoff_hz": 4878.6941915351545,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 11,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 2.0702717144127196,
+          "target_rms": 0.05477940638229402
+        },
+        "costas": {
+          "loop_bw": 0.02158550948363806
+        },
+        "gardner": {
+          "loop_bw": 0.07902183978604546
+        },
+        "sync": {
+          "crc_correction_max_bits": 4,
+          "loss_threshold": 8
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 171,
+      "score": 0.08301642039097921,
+      "config": {
+        "baseband_lpf_hz": 5330.8008829472055,
+        "anti_alias_cutoff_hz": 7190.721908426862,
+        "anti_alias_order": 1,
+        "matched_filter_spans": 11,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 1.3066149255446524,
+          "target_rms": 0.0020577470513489004
+        },
+        "costas": {
+          "loop_bw": 0.10789424158197272
+        },
+        "gardner": {
+          "loop_bw": 0.008809334886965173
+        },
+        "sync": {
+          "crc_correction_max_bits": 3,
+          "loss_threshold": 3
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 174,
+      "score": 0.0804426728110599,
+      "config": {
+        "baseband_lpf_hz": 2986.3832763115147,
+        "anti_alias_cutoff_hz": 4838.40676912131,
+        "anti_alias_order": 5,
+        "matched_filter_spans": 14,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 60.7093362207162,
+          "target_rms": 0.0015101923441936112
+        },
+        "costas": {
+          "loop_bw": 0.0859100215434877
+        },
+        "gardner": {
+          "loop_bw": 0.005595563357624726
+        },
+        "sync": {
+          "crc_correction_max_bits": 3,
+          "loss_threshold": 6
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 169,
+      "score": 0.2347868133448375,
+      "config": {
+        "baseband_lpf_hz": 5957.468990358782,
+        "anti_alias_cutoff_hz": 5794.931775753901,
+        "anti_alias_order": 2,
+        "matched_filter_spans": 15,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 19.07101142455639,
+          "target_rms": 0.0009608171885900416
+        },
+        "costas": {
+          "loop_bw": 0.06369425988061257
+        },
+        "gardner": {
+          "loop_bw": 0.005876134518721391
+        },
+        "sync": {
+          "crc_correction_max_bits": 1,
+          "loss_threshold": 15
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 170,
+      "score": 0.4212026651799379,
+      "config": {
+        "baseband_lpf_hz": 2708.6109271103587,
+        "anti_alias_cutoff_hz": 7550.971011128973,
+        "anti_alias_order": 2,
+        "matched_filter_spans": 9,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 1.5964645299418696,
+          "target_rms": 0.0023389629858813423
+        },
+        "costas": {
+          "loop_bw": 0.01890553051543412
+        },
+        "gardner": {
+          "loop_bw": 0.01680133107655689
+        },
+        "sync": {
+          "crc_correction_max_bits": 3,
+          "loss_threshold": 14
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 176,
+      "score": 0.38688839854639584,
+      "config": {
+        "baseband_lpf_hz": 5188.126184129389,
+        "anti_alias_cutoff_hz": 7857.195151424134,
+        "anti_alias_order": 2,
+        "matched_filter_spans": 4,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 4.443336583311261,
+          "target_rms": 0.00506967589075074
+        },
+        "costas": {
+          "loop_bw": 0.19021591035212354
+        },
+        "gardner": {
+          "loop_bw": 0.02067348236919349
+        },
+        "sync": {
+          "crc_correction_max_bits": 3,
+          "loss_threshold": 8
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 175,
+      "score": 0.13437394498216415,
+      "config": {
+        "baseband_lpf_hz": 5288.455865105076,
+        "anti_alias_cutoff_hz": 6903.968318522766,
+        "anti_alias_order": 2,
+        "matched_filter_spans": 6,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 1.0775691745900817,
+          "target_rms": 0.00010633261174073818
+        },
+        "costas": {
+          "loop_bw": 0.05537046909881346
+        },
+        "gardner": {
+          "loop_bw": 0.016579240382842572
+        },
+        "sync": {
+          "crc_correction_max_bits": 5,
+          "loss_threshold": 11
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 172,
+      "score": 0.41522616135100066,
+      "config": {
+        "baseband_lpf_hz": 5744.7187060995075,
+        "anti_alias_cutoff_hz": 4317.375801076478,
+        "anti_alias_order": 2,
+        "matched_filter_spans": 4,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 45.0321315227406,
+          "target_rms": 0.002532551054747818
+        },
+        "costas": {
+          "loop_bw": 0.018162567999987486
+        },
+        "gardner": {
+          "loop_bw": 0.07858106877589108
+        },
+        "sync": {
+          "crc_correction_max_bits": 4,
+          "loss_threshold": 13
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 184,
+      "score": 0.47864916666666674,
+      "config": {
+        "baseband_lpf_hz": 4678.350802218527,
+        "anti_alias_cutoff_hz": 4104.274072757703,
+        "anti_alias_order": 6,
+        "matched_filter_spans": 8,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 2.2932803938804,
+          "target_rms": 0.009828824448244547
+        },
+        "costas": {
+          "loop_bw": 0.12833434094493354
+        },
+        "gardner": {
+          "loop_bw": 0.08715218927156312
+        },
+        "sync": {
+          "crc_correction_max_bits": 5,
+          "loss_threshold": 6
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 178,
+      "score": 0.47590693912884996,
+      "config": {
+        "baseband_lpf_hz": 3154.5468952531046,
+        "anti_alias_cutoff_hz": 8802.744112715956,
+        "anti_alias_order": 4,
+        "matched_filter_spans": 8,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 1.7981216592194813,
+          "target_rms": 0.010067274546575019
+        },
+        "costas": {
+          "loop_bw": 0.0699847625459077
+        },
+        "gardner": {
+          "loop_bw": 0.011063794764797871
+        },
+        "sync": {
+          "crc_correction_max_bits": 4,
+          "loss_threshold": 12
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 179,
+      "score": 0.5650843253968253,
+      "config": {
+        "baseband_lpf_hz": 3549.825420455306,
+        "anti_alias_cutoff_hz": 6121.185330178145,
+        "anti_alias_order": 6,
+        "matched_filter_spans": 7,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 20.922988113051712,
+          "target_rms": 0.014630823021600547
+        },
+        "costas": {
+          "loop_bw": 0.11540399225853017
+        },
+        "gardner": {
+          "loop_bw": 0.012732386915913078
+        },
+        "sync": {
+          "crc_correction_max_bits": 1,
+          "loss_threshold": 15
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 177,
+      "score": 0.21230657101865139,
+      "config": {
+        "baseband_lpf_hz": 4443.685248806639,
+        "anti_alias_cutoff_hz": 7002.505218470451,
+        "anti_alias_order": 1,
+        "matched_filter_spans": 7,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 43.24084009949458,
+          "target_rms": 0.00039786229236380826
+        },
+        "costas": {
+          "loop_bw": 0.010599894119467835
+        },
+        "gardner": {
+          "loop_bw": 0.011875940110263218
+        },
+        "sync": {
+          "crc_correction_max_bits": 0,
+          "loss_threshold": 8
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 180,
+      "score": 0.3263206955868912,
+      "config": {
+        "baseband_lpf_hz": 3920.204270566778,
+        "anti_alias_cutoff_hz": 5923.607178634107,
+        "anti_alias_order": 5,
+        "matched_filter_spans": 15,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 4.551288167298258,
+          "target_rms": 0.0006506662414957626
+        },
+        "costas": {
+          "loop_bw": 0.017949878632275575
+        },
+        "gardner": {
+          "loop_bw": 0.01294800667082551
+        },
+        "sync": {
+          "crc_correction_max_bits": 2,
+          "loss_threshold": 15
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 181,
+      "score": 0.7840444524265645,
+      "config": {
+        "baseband_lpf_hz": 2732.546524207074,
+        "anti_alias_cutoff_hz": 6549.30837694532,
+        "anti_alias_order": 4,
+        "matched_filter_spans": 8,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 25.20759112459855,
+          "target_rms": 0.009314724414121907
+        },
+        "costas": {
+          "loop_bw": 0.06093764037131539
+        },
+        "gardner": {
+          "loop_bw": 0.08942557489695546
+        },
+        "sync": {
+          "crc_correction_max_bits": 0,
+          "loss_threshold": 7
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 183,
+      "score": 0.37390261627906973,
+      "config": {
+        "baseband_lpf_hz": 4752.351894197639,
+        "anti_alias_cutoff_hz": 6603.1406306003355,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 5,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 9.691161584946851,
+          "target_rms": 0.001895242873153136
+        },
+        "costas": {
+          "loop_bw": 0.18006157294495911
+        },
+        "gardner": {
+          "loop_bw": 0.04986944799634509
+        },
+        "sync": {
+          "crc_correction_max_bits": 4,
+          "loss_threshold": 15
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 182,
+      "score": 0.3333333333333333,
+      "config": {
+        "baseband_lpf_hz": 5084.941979946347,
+        "anti_alias_cutoff_hz": 7034.866935015136,
+        "anti_alias_order": 2,
+        "matched_filter_spans": 6,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 34.66109729250014,
+          "target_rms": 0.06278592681916297
+        },
+        "costas": {
+          "loop_bw": 0.024183103083692207
+        },
+        "gardner": {
+          "loop_bw": 0.08949140097921134
+        },
+        "sync": {
+          "crc_correction_max_bits": 4,
+          "loss_threshold": 6
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 192,
+      "score": 0.2207306050605061,
+      "config": {
+        "baseband_lpf_hz": 4742.1333930132605,
+        "anti_alias_cutoff_hz": 6723.529882729283,
+        "anti_alias_order": 2,
+        "matched_filter_spans": 9,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 9.816130045753356,
+          "target_rms": 0.0005536651731926773
+        },
+        "costas": {
+          "loop_bw": 0.04393037270127089
+        },
+        "gardner": {
+          "loop_bw": 0.09931077610130186
+        },
+        "sync": {
+          "crc_correction_max_bits": 0,
+          "loss_threshold": 5
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 186,
+      "score": 0.6278657046657047,
+      "config": {
+        "baseband_lpf_hz": 3976.8188740378587,
+        "anti_alias_cutoff_hz": 6920.4344817413785,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 16,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 19.441601949858203,
+          "target_rms": 0.023955445732512518
+        },
+        "costas": {
+          "loop_bw": 0.010716567790233972
+        },
+        "gardner": {
+          "loop_bw": 0.039833258518395115
+        },
+        "sync": {
+          "crc_correction_max_bits": 2,
+          "loss_threshold": 7
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 189,
+      "score": 0.16081145528310373,
+      "config": {
+        "baseband_lpf_hz": 2819.8071176628764,
+        "anti_alias_cutoff_hz": 4790.1859518329475,
+        "anti_alias_order": 1,
+        "matched_filter_spans": 13,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 34.044660957425165,
+          "target_rms": 0.00024303762131816533
+        },
+        "costas": {
+          "loop_bw": 0.010437483591489572
+        },
+        "gardner": {
+          "loop_bw": 0.013158316907767593
+        },
+        "sync": {
+          "crc_correction_max_bits": 3,
+          "loss_threshold": 15
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 188,
+      "score": 0.28851917912513847,
+      "config": {
+        "baseband_lpf_hz": 4985.947595594755,
+        "anti_alias_cutoff_hz": 7032.635491914158,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 16,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 1.066095755410796,
+          "target_rms": 0.000538468201713723
+        },
+        "costas": {
+          "loop_bw": 0.040164646362904025
+        },
+        "gardner": {
+          "loop_bw": 0.012608906214815826
+        },
+        "sync": {
+          "crc_correction_max_bits": 1,
+          "loss_threshold": 13
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 190,
+      "score": 0.5953395440131913,
+      "config": {
+        "baseband_lpf_hz": 4105.532174866423,
+        "anti_alias_cutoff_hz": 7273.03734339722,
+        "anti_alias_order": 2,
+        "matched_filter_spans": 4,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 17.13102515530381,
+          "target_rms": 0.005574749256613589
+        },
+        "costas": {
+          "loop_bw": 0.18944176174987293
+        },
+        "gardner": {
+          "loop_bw": 0.04395781452437985
+        },
+        "sync": {
+          "crc_correction_max_bits": 1,
+          "loss_threshold": 13
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 185,
+      "score": 0.05976061101593513,
+      "config": {
+        "baseband_lpf_hz": 3923.4558108713777,
+        "anti_alias_cutoff_hz": 6716.484545526948,
+        "anti_alias_order": 1,
+        "matched_filter_spans": 13,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 55.1834126736384,
+          "target_rms": 0.0009597079460183084
+        },
+        "costas": {
+          "loop_bw": 0.029653286707497298
+        },
+        "gardner": {
+          "loop_bw": 0.00523193730000396
+        },
+        "sync": {
+          "crc_correction_max_bits": 0,
+          "loss_threshold": 3
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 187,
+      "score": 0.2841811166744902,
+      "config": {
+        "baseband_lpf_hz": 3192.280093539533,
+        "anti_alias_cutoff_hz": 6882.125361209446,
+        "anti_alias_order": 2,
+        "matched_filter_spans": 15,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 7.301963520662792,
+          "target_rms": 0.0003695816567736972
+        },
+        "costas": {
+          "loop_bw": 0.023781180314086516
+        },
+        "gardner": {
+          "loop_bw": 0.04811922131839488
+        },
+        "sync": {
+          "crc_correction_max_bits": 1,
+          "loss_threshold": 9
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 191,
+      "score": 0.13004214068047631,
+      "config": {
+        "baseband_lpf_hz": 3000.4038684953193,
+        "anti_alias_cutoff_hz": 6336.596238717093,
+        "anti_alias_order": 2,
+        "matched_filter_spans": 6,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 8.410023330867146,
+          "target_rms": 0.0002851786890180366
+        },
+        "costas": {
+          "loop_bw": 0.0772076942273239
+        },
+        "gardner": {
+          "loop_bw": 0.0581903869026447
+        },
+        "sync": {
+          "crc_correction_max_bits": 0,
+          "loss_threshold": 10
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 199,
+      "score": 0.3333333333333333,
+      "config": {
+        "baseband_lpf_hz": 5351.413769859624,
+        "anti_alias_cutoff_hz": 5850.283187128885,
+        "anti_alias_order": 2,
+        "matched_filter_spans": 16,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 10.589604528282399,
+          "target_rms": 0.07359902200117226
+        },
+        "costas": {
+          "loop_bw": 0.04092732677598645
+        },
+        "gardner": {
+          "loop_bw": 0.07126056986405939
+        },
+        "sync": {
+          "crc_correction_max_bits": 4,
+          "loss_threshold": 4
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 198,
+      "score": 0.38526512477121555,
+      "config": {
+        "baseband_lpf_hz": 5218.0521763537445,
+        "anti_alias_cutoff_hz": 7524.500010830973,
+        "anti_alias_order": 6,
+        "matched_filter_spans": 16,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 30.450671661885504,
+          "target_rms": 0.004329477222412494
+        },
+        "costas": {
+          "loop_bw": 0.10337357666975727
+        },
+        "gardner": {
+          "loop_bw": 0.047887704886629974
+        },
+        "sync": {
+          "crc_correction_max_bits": 5,
+          "loss_threshold": 15
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 200,
+      "score": 0.5443152777777778,
+      "config": {
+        "baseband_lpf_hz": 3375.2371676312496,
+        "anti_alias_cutoff_hz": 9337.726298128811,
+        "anti_alias_order": 2,
+        "matched_filter_spans": 12,
+        "matched_filter_window": "hamming",
+        "agc": {
+          "bandwidth_hz": 1.2667598549657202,
+          "target_rms": 0.04632039837827543
+        },
+        "costas": {
+          "loop_bw": 0.016070424852086262
+        },
+        "gardner": {
+          "loop_bw": 0.023959913894546273
+        },
+        "sync": {
+          "crc_correction_max_bits": 2,
+          "loss_threshold": 7
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 197,
+      "score": 0.1284465377771359,
+      "config": {
+        "baseband_lpf_hz": 3910.4737776332363,
+        "anti_alias_cutoff_hz": 4757.495014058914,
+        "anti_alias_order": 6,
+        "matched_filter_spans": 10,
+        "matched_filter_window": "blackman",
+        "agc": {
+          "bandwidth_hz": 6.281135973891931,
+          "target_rms": 0.00010218230456956947
+        },
+        "costas": {
+          "loop_bw": 0.08050704388903822
+        },
+        "gardner": {
+          "loop_bw": 0.02104200715067463
+        },
+        "sync": {
+          "crc_correction_max_bits": 1,
+          "loss_threshold": 7
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 193,
+      "score": 0.37083512697361737,
+      "config": {
+        "baseband_lpf_hz": 4149.459459986134,
+        "anti_alias_cutoff_hz": 5769.61390106413,
+        "anti_alias_order": 1,
+        "matched_filter_spans": 15,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 1.4130212587965991,
+          "target_rms": 0.002407912759623214
+        },
+        "costas": {
+          "loop_bw": 0.011225541782479009
+        },
+        "gardner": {
+          "loop_bw": 0.017339754806322757
+        },
+        "sync": {
+          "crc_correction_max_bits": 1,
+          "loss_threshold": 8
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 196,
+      "score": 0.49192766787439607,
+      "config": {
+        "baseband_lpf_hz": 4334.455290461485,
+        "anti_alias_cutoff_hz": 6126.205205907461,
+        "anti_alias_order": 6,
+        "matched_filter_spans": 4,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 4.448332933084339,
+          "target_rms": 0.015187811135668266
+        },
+        "costas": {
+          "loop_bw": 0.053686728975506914
+        },
+        "gardner": {
+          "loop_bw": 0.007472037484492314
+        },
+        "sync": {
+          "crc_correction_max_bits": 2,
+          "loss_threshold": 12
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 194,
+      "score": 0.22601038466179077,
+      "config": {
+        "baseband_lpf_hz": 4022.359428633262,
+        "anti_alias_cutoff_hz": 4046.0070711917797,
+        "anti_alias_order": 5,
+        "matched_filter_spans": 7,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 12.085163608834637,
+          "target_rms": 0.0002663166918361682
+        },
+        "costas": {
+          "loop_bw": 0.0904266349059423
+        },
+        "gardner": {
+          "loop_bw": 0.06582084293834173
+        },
+        "sync": {
+          "crc_correction_max_bits": 2,
+          "loss_threshold": 15
+        }
+      },
+      "type": "random"
+    },
+    {
+      "trial": 195,
+      "score": 0.17048699248867502,
+      "config": {
+        "baseband_lpf_hz": 3692.894529508495,
+        "anti_alias_cutoff_hz": 6435.144513981164,
+        "anti_alias_order": 3,
+        "matched_filter_spans": 14,
+        "matched_filter_window": "hann",
+        "agc": {
+          "bandwidth_hz": 19.2085940905812,
+          "target_rms": 0.00016638490178993488
+        },
+        "costas": {
+          "loop_bw": 0.10421194022559538
+        },
+        "gardner": {
+          "loop_bw": 0.074852013125521
+        },
+        "sync": {
+          "crc_correction_max_bits": 1,
+          "loss_threshold": 11
+        }
+      },
+      "type": "random"
+    }
+  ],
+  "recordings": [
+    "res/recordings/94_9_30s.sigmf-meta",
+    "res/recordings/96_1_30s.sigmf-meta",
+    "res/recordings/100_5_30s.sigmf-meta"
+  ]
+}

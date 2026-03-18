@@ -102,7 +102,7 @@ impl Default for SyncConfig {
     fn default() -> Self {
         SyncConfig {
             crc_correction_max_bits: 2,
-            loss_threshold: 5,
+            loss_threshold: 12,
         }
     }
 }
@@ -126,10 +126,15 @@ mod tests {
     fn test_default_config() {
         let config = RdsConfig::default();
         assert_eq!(config.baseband_lpf_hz, 4000.0);
+        assert_eq!(config.anti_alias_cutoff_hz, 9000.0);
+        assert_eq!(config.anti_alias_order, 3);
+        assert_eq!(config.matched_filter_spans, 8);
+        assert_eq!(config.matched_filter_window, "blackman");
         assert_eq!(config.agc.bandwidth_hz, 10.0);
         assert_eq!(config.costas.loop_bw, 0.05);
         assert_eq!(config.gardner.loop_bw, 0.01);
-        assert_eq!(config.sync.loss_threshold, 5);
+        assert_eq!(config.sync.loss_threshold, 12);
+        assert_eq!(config.sync.crc_correction_max_bits, 2);
     }
 
     #[test]
