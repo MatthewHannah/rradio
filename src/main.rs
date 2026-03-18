@@ -492,6 +492,19 @@ const RDS_MANCHESTER_RRC_TAPS: [f32; 144] = [
     -7.1691648e-08, 8.2718543e-09, 8.2718543e-09, -7.2474601e-22,
 ];
 
+/// RDS decoding pipeline.
+///
+/// The approach here — using a Manchester-shaped RRC matched filter with
+/// symbol sync at bit rate (1187.5 Hz) and a Costas loop for BPSK phase
+/// recovery — is informed by Bastian Bloessl's gr-rds flowgraph for
+/// GNU Radio, which was shown to be the best-performing RDS decoder across
+/// 38 FM stations in a comparative analysis by site2241.net (January 2024).
+///
+/// References:
+///   - Bloessl's gr-rds: https://github.com/bastibl/gr-rds
+///   - Comparative analysis: https://www.site2241.net/january2024.htm
+///   - Andy Walls, "Symbol Clock Recovery", GRCon 2017 (AGC requirements for TEDs)
+///   - RDS standard: IEC 62106
 fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<Complex32>>, wfm_fs: f32, debug: bool) {
     let bit_rate = 1187.5_f32;
     let rds_iter = buffer::RecvBufIter::new(rds_rx);
@@ -552,11 +565,16 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<Complex32
     }
 }
 
-fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::AtomicBool>, obs_settings: AudioPipelineObservationSettings, rds_debug: bool) {
+fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::AtomicBool>, obs_settings: AudioPipelineObservationSettings, rds_debug: bool, record_path: Option<String>) {
     let fs = match &iq_source {
         IqSource::Pluto { config } => config.fs,
         IqSource::Soapy { config } => config.fs,
         IqSource::Sigmf { streamer, .. } => streamer.sample_rate(),
+    };
+    let station_freq = match &iq_source {
+        IqSource::Pluto { config } => config.station as f64,
+        IqSource::Soapy { config } => config.station as f64,
+        IqSource::Sigmf { .. } => 0.0,
     };
 
     let settings = compute_pipeline_settings(fs);
@@ -569,9 +587,91 @@ fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::Ato
         wfm_fs, RDS_FIRST_DECIMATE, RDS_UPSAMPLE, RDS_SECOND_DECIMATE, RDS_FS);
 
     // Buffer pairs
-    let (iq_tx, iq_rx) = buffer::buf_pair(8);
+    let (iq_tx, iq_rx) = buffer::buf_pair::<Vec<Complex32>>(8);
     let (audio_tx, audio_rx) = buffer::buf_pair::<Vec<(f32, f32)>>(8);
     let (rds_tx, rds_rx) = buffer::buf_pair::<Vec<Complex32>>(8);
+
+    // Optional IQ recording: splitter tees raw IQ to both signal pipeline and recorder
+    let (pipeline_rx, record_thread) = if let Some(ref path) = record_path {
+        let (pipeline_tx, pipeline_rx) = buffer::buf_pair::<Vec<Complex32>>(8);
+        let (record_tx, record_rx) = buffer::buf_pair::<Vec<Complex32>>(4);
+
+        let hw = match &iq_source {
+            IqSource::Pluto { .. } => "PlutoSDR",
+            IqSource::Soapy { .. } => "RTL-SDR via SoapySDR",
+            IqSource::Sigmf { .. } => "SigMF playback",
+        };
+        let mut writer = sigmf::SigmfWriter::new(path, fs as f64, station_freq, hw)
+            .expect("Failed to create SigMF recording");
+
+        // Splitter thread: reads IQ, writes to pipeline + recorder
+        let done_ref = done_sig.clone();
+        let mut pipeline_out = pipeline_tx;
+        let mut record_out = record_tx;
+        let splitter = std::thread::spawn(move || {
+            let mut rx = iq_rx;
+            while !done_ref.load(atomic::Ordering::SeqCst) {
+                let token = match rx.get() {
+                    Some(t) => t,
+                    None => break,
+                };
+
+                // Write to recorder (blocking — never drop)
+                if let Some(mut rec_tok) = record_out.get() {
+                    rec_tok.clear();
+                    rec_tok.extend_from_slice(&token);
+                    record_out.commit(rec_tok);
+                }
+
+                // Write to pipeline (blocking)
+                if let Some(mut pipe_tok) = pipeline_out.get() {
+                    pipe_tok.clear();
+                    pipe_tok.extend_from_slice(&token);
+                    pipeline_out.commit(pipe_tok);
+                } else {
+                    break;
+                }
+
+                rx.release(token);
+            }
+        });
+
+        // Recorder thread: writes IQ to disk
+        let done_ref = done_sig.clone();
+        let rec_path = path.clone();
+        let recorder = std::thread::spawn(move || {
+            let iter = buffer::RecvBufIter::new(record_rx);
+            let mut batch = Vec::with_capacity(8192);
+            for sample in iter {
+                if done_ref.load(atomic::Ordering::SeqCst) { break; }
+                batch.push(sample);
+                if batch.len() >= 8192 {
+                    if let Err(e) = writer.write_samples(&batch) {
+                        eprintln!("SigMF write error: {}", e);
+                        break;
+                    }
+                    batch.clear();
+                }
+            }
+            if !batch.is_empty() {
+                let _ = writer.write_samples(&batch);
+            }
+            if let Err(e) = writer.finalize() {
+                eprintln!("SigMF finalize error: {}", e);
+            }
+        });
+
+        // Splitter runs in background, we need to join both later
+        // Store splitter handle alongside recorder
+        let combined = std::thread::spawn(move || {
+            splitter.join().unwrap();
+            recorder.join().unwrap();
+        });
+
+        (pipeline_rx, Some(combined))
+    } else {
+        (iq_rx, None)
+    };
 
     // Thread 1: IQ source
     let done_ref = done_sig.clone();
@@ -586,7 +686,7 @@ fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::Ato
     // Thread 2: Signal pipeline (FM demod + stereo/RDS extraction → tee)
     let done_ref = done_sig.clone();
     let signal_thread = std::thread::spawn(move || {
-        signal_pipeline(&done_ref, fs, iq_rx, audio_tx, rds_tx, settings, obs_settings);
+        signal_pipeline(&done_ref, fs, pipeline_rx, audio_tx, rds_tx, settings, obs_settings);
     });
 
     // Thread 3: RDS consumer
@@ -613,6 +713,9 @@ fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::Ato
     iq_thread.join().unwrap();
     signal_thread.join().unwrap();
     rds_thread.join().unwrap();
+    if let Some(rt) = record_thread {
+        rt.join().unwrap();
+    }
 }
 
 fn main() {
@@ -635,6 +738,8 @@ fn main() {
     let mut positional = Vec::new();
     let mut wav_path: Option<String> = None;
     let mut rds_debug = false;
+    let mut record_path: Option<String> = None;
+    let mut duration_secs: Option<f64> = None;
     let mut i = 0;
     while i < args.len() {
         if args[i] == "--wav" {
@@ -643,10 +748,27 @@ fn main() {
         } else if args[i] == "--rds-debug" {
             rds_debug = true;
             i += 1;
+        } else if args[i] == "--record" {
+            record_path = Some(args.get(i + 1).expect("Usage: --record <path>").clone());
+            i += 2;
+        } else if args[i] == "--duration" {
+            duration_secs = Some(args.get(i + 1).expect("Usage: --duration <seconds>")
+                .parse().expect("--duration must be a number"));
+            i += 2;
         } else {
             positional.push(args[i].clone());
             i += 1;
         }
+    }
+
+    // Duration timer: spawn a thread that sets done after the specified time
+    if let Some(secs) = duration_secs {
+        let done_ref = done_sig.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs_f64(secs));
+            eprintln!("Duration {:.1}s reached, shutting down...", secs);
+            done_ref.store(true, atomic::Ordering::SeqCst);
+        });
     }
 
     let audio_output = match wav_path {
@@ -664,7 +786,7 @@ fn main() {
                 * 1e3;
             let streamer = sigmf::SigmfStreamer::new(path).expect("Failed to open SigMF file");
             let source = IqSource::Sigmf { streamer, tune_offset };
-            run(source, audio_output, done_sig, obs_settings, rds_debug);
+            run(source, audio_output, done_sig, obs_settings, rds_debug, record_path);
         }
         Some("soapy") => {
             let filter = pos.next().expect("Usage: rradio soapy <filter> [station_mhz]");
@@ -678,7 +800,7 @@ fn main() {
                 bw: 600e6,
                 fs: 2.4e6,
             };
-            run(IqSource::Soapy { config }, audio_output, done_sig, obs_settings, rds_debug);
+            run(IqSource::Soapy { config }, audio_output, done_sig, obs_settings, rds_debug, record_path);
         }
         Some("pluto") => {
             let station: f32 = pos.next()
@@ -691,7 +813,7 @@ fn main() {
                 bw: 600e6,
                 fs: 2.4e6,
             };
-            run(IqSource::Pluto { config }, audio_output, done_sig, obs_settings, rds_debug);
+            run(IqSource::Pluto { config }, audio_output, done_sig, obs_settings, rds_debug, record_path);
         }
         _ => {
             eprintln!("Usage: rradio <source> [options] [--wav <output.wav>]");
