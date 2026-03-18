@@ -1,7 +1,8 @@
-/// Developed using Claude Opus 4.6
 /// RDS block synchronization, CRC checking, and group assembly.
 ///
 /// Consumes a bitstream (Iterator<Item = u8>) and yields decoded RDS groups.
+
+use crate::rds_config::SyncConfig;
 ///
 /// The RDS bitstream is structured as:
 ///   - Blocks of 26 bits: 16 data + 10 check (CRC + offset word)
@@ -45,7 +46,6 @@ fn expected_next_offsets(current_offset_idx: usize) -> &'static [usize] {
 }
 
 const SYNC_THRESHOLD: usize = 3;  // consecutive good blocks to lock
-const LOSS_THRESHOLD: usize = 5;  // consecutive bad blocks to lose sync
 
 /// Compute CRC-10 syndrome for a 26-bit block using polynomial long division.
 /// For an error-free block, syndrome == offset word for that block type.
@@ -63,7 +63,7 @@ fn syndrome(block: u32) -> u16 {
 
 /// Try to match a block's syndrome against expected offsets, with optional error correction.
 /// Returns Some((offset_index, corrected_data)) on success.
-fn check_block(block: u32, expected_offsets: &[usize], correct_errors: bool) -> Option<(usize, u16)> {
+fn check_block(block: u32, expected_offsets: &[usize], max_correction_bits: u32) -> Option<(usize, u16)> {
     let syn = syndrome(block);
 
     // First try exact match (no errors)
@@ -73,17 +73,15 @@ fn check_block(block: u32, expected_offsets: &[usize], correct_errors: bool) -> 
         }
     }
 
-    if !correct_errors {
+    if max_correction_bits == 0 {
         return None;
     }
 
-    // Try error correction: XOR syndrome with each expected offset to get
-    // the error syndrome, then look up in the correction table.
-    // Only correct if the error pattern affects <= 2 bits (conservative).
+    // Try error correction
     for &idx in expected_offsets {
         let error_syndrome = (syn ^ OFFSETS[idx].0) as usize;
         let error_pattern = ERROR_CORRECTION_TABLE[error_syndrome];
-        if error_pattern != 0 && error_pattern.count_ones() <= 2 {
+        if error_pattern != 0 && error_pattern.count_ones() <= max_correction_bits {
             let corrected = block ^ error_pattern;
             return Some((idx, (corrected >> 10) as u16));
         }
@@ -104,8 +102,6 @@ pub struct RdsGroup {
     pub group_type: u8,
     pub version: bool,
     pub pi_code: u16,
-    pub total_blocks_checked: u64,
-    pub total_blocks_passed: u64,
     pub rolling_bler: f64,
 }
 
@@ -128,6 +124,8 @@ pub struct RdsBlockSync<I: Iterator<Item = u8>> {
     consecutive_bad: usize,
     synced_groups: usize,
     debug: bool,
+    loss_threshold: usize,
+    crc_max_bits: u32,
     total_blocks_checked: u64,
     total_blocks_passed: u64,
     bler_history: Vec<bool>,  // ring buffer: true = passed
@@ -138,7 +136,7 @@ pub struct RdsBlockSync<I: Iterator<Item = u8>> {
 const BLER_WINDOW: usize = 200;
 
 impl<I: Iterator<Item = u8>> RdsBlockSync<I> {
-    pub fn new(iter: I, debug: bool) -> Self {
+    pub fn new(iter: I, config: &SyncConfig, debug: bool) -> Self {
         RdsBlockSync {
             iter,
             shift_reg: 0,
@@ -152,6 +150,8 @@ impl<I: Iterator<Item = u8>> RdsBlockSync<I> {
             consecutive_bad: 0,
             synced_groups: 0,
             debug,
+            loss_threshold: config.loss_threshold,
+            crc_max_bits: config.crc_correction_max_bits,
             total_blocks_checked: 0,
             total_blocks_passed: 0,
             bler_history: vec![false; BLER_WINDOW],
@@ -227,7 +227,7 @@ impl<I: Iterator<Item = u8>> RdsBlockSync<I> {
                 // 26 bits collected — check syndrome (no error correction during tentative)
                 let expected = *expected_offsets;
 
-                if let Some((idx, data)) = check_block(self.shift_reg, expected, false) {
+                if let Some((idx, data)) = check_block(self.shift_reg, expected, 0) {
                     let block_pos = BLOCK_FOR_OFFSET[idx];
                     self.blocks[block_pos] = data;
                     self.block_idx = block_pos;
@@ -269,7 +269,7 @@ impl<I: Iterator<Item = u8>> RdsBlockSync<I> {
                 self.bits_in_block = 0;
                 let expected = expected_next_offsets(self.current_offset_idx);
 
-                if let Some((idx, data)) = check_block(self.shift_reg, expected, true) {
+                if let Some((idx, data)) = check_block(self.shift_reg, expected, self.crc_max_bits) {
                     self.record_block(true);
                     let block_pos = BLOCK_FOR_OFFSET[idx];
                     self.blocks[block_pos] = data;
@@ -291,7 +291,7 @@ impl<I: Iterator<Item = u8>> RdsBlockSync<I> {
                         self.block_idx = BLOCK_FOR_OFFSET[next];
                     }
 
-                    if self.consecutive_bad >= LOSS_THRESHOLD {
+                    if self.consecutive_bad >= self.loss_threshold {
                         if self.debug {
                             eprintln!("RDS sync: LOST after {} consecutive bad blocks (total groups: {})",
                                 self.consecutive_bad, self.synced_groups);
@@ -313,8 +313,6 @@ impl<I: Iterator<Item = u8>> RdsBlockSync<I> {
             group_type: ((b >> 12) & 0x0F) as u8,
             version: ((b >> 11) & 1) == 1,
             pi_code: self.blocks[0],
-            total_blocks_checked: self.total_blocks_checked,
-            total_blocks_passed: self.total_blocks_passed,
             rolling_bler: self.rolling_bler(),
         };
         self.synced_groups += 1;
@@ -337,14 +335,14 @@ impl<I: Iterator<Item = u8>> Iterator for RdsBlockSync<I> {
 }
 
 pub trait RdsBlockSyncable {
-    fn rds_block_sync(self, debug: bool) -> RdsBlockSync<Self>
+    fn rds_block_sync(self, config: &SyncConfig, debug: bool) -> RdsBlockSync<Self>
     where
         Self: Sized + Iterator<Item = u8>;
 }
 
 impl<I: Iterator<Item = u8>> RdsBlockSyncable for I {
-    fn rds_block_sync(self, debug: bool) -> RdsBlockSync<Self> {
-        RdsBlockSync::new(self, debug)
+    fn rds_block_sync(self, config: &SyncConfig, debug: bool) -> RdsBlockSync<Self> {
+        RdsBlockSync::new(self, config, debug)
     }
 }
 
@@ -580,7 +578,7 @@ mod tests {
         }
 
         let bits = blocks_to_bits(&blocks);
-        let groups: Vec<RdsGroup> = bits.into_iter().rds_block_sync(false).collect();
+        let groups: Vec<RdsGroup> = bits.into_iter().rds_block_sync(&SyncConfig::default(), false).collect();
 
         assert!(!groups.is_empty(), "Should decode at least one group");
 
@@ -613,7 +611,7 @@ mod tests {
             bits.extend(blocks_to_bits(&blocks));
         }
 
-        let groups: Vec<RdsGroup> = bits.into_iter().rds_block_sync(false).collect();
+        let groups: Vec<RdsGroup> = bits.into_iter().rds_block_sync(&SyncConfig::default(), false).collect();
         assert!(groups.len() >= 2, "Should recover sync and decode groups after noise, got {}", groups.len());
     }
 }

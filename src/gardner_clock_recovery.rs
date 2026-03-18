@@ -1,9 +1,10 @@
-/// Developed using Claude Opus 4.6
 /// Gardner Timing Error Detector with interpolating clock recovery.
 ///
 /// Recovers the symbol clock from an oversampled signal by finding the
 /// optimal sampling instants. Consumes ~N input samples per output,
 /// where N = sample_rate / symbol_rate.
+
+use crate::rds_config::GardnerConfig;
 
 pub struct GardnerClockRecovery<I: Iterator<Item = f32>> {
     iter: I,
@@ -27,7 +28,7 @@ pub struct GardnerClockRecovery<I: Iterator<Item = f32>> {
 }
 
 impl<I: Iterator<Item = f32>> GardnerClockRecovery<I> {
-    pub fn new(iter: I, symbol_rate: f32, sample_rate: f32) -> Self {
+    pub fn new(iter: I, symbol_rate: f32, sample_rate: f32, config: &GardnerConfig) -> Self {
         // PI loop filter gains derived from 2nd-order PLL control theory.
         // Maps desired loop bandwidth and damping ratio to discrete-time
         // proportional (Kp) and integral (Ki) gains:
@@ -35,8 +36,8 @@ impl<I: Iterator<Item = f32>> GardnerClockRecovery<I> {
         //   Ki = 4 * bw_n^2 / (1 + 2 * zeta * bw_n + bw_n^2)
         // This is the same formula used in GNU Radio's Symbol Sync block
         // (see symbol_sync_cc_impl.cc in gr-digital).
-        let bw_n = 0.01; // normalized loop bandwidth (~1% of symbol rate)
-        let zeta = 0.707; // damping factor (critically damped)
+        let bw_n = config.loop_bw;
+        let zeta = 0.707;
         let denom = 1.0 + 2.0 * zeta * bw_n + bw_n * bw_n;
         let kp = 4.0 * zeta * bw_n / denom;
         let ki = 4.0 * bw_n * bw_n / denom;
@@ -107,17 +108,17 @@ impl<I: Iterator<Item = f32>> Iterator for GardnerClockRecovery<I> {
 }
 
 pub trait GardnerClockRecoverable {
-    fn clock_recover(self, symbol_rate: f32, sample_rate: f32)
+    fn clock_recover(self, symbol_rate: f32, sample_rate: f32, config: &GardnerConfig)
         -> GardnerClockRecovery<Self>
     where
         Self: Sized + Iterator<Item = f32>;
 }
 
 impl<I: Iterator<Item = f32>> GardnerClockRecoverable for I {
-    fn clock_recover(self, symbol_rate: f32, sample_rate: f32)
+    fn clock_recover(self, symbol_rate: f32, sample_rate: f32, config: &GardnerConfig)
         -> GardnerClockRecovery<Self>
     {
-        GardnerClockRecovery::new(self, symbol_rate, sample_rate)
+        GardnerClockRecovery::new(self, symbol_rate, sample_rate, config)
     }
 }
 
@@ -145,7 +146,7 @@ mod tests {
 
         let output: Vec<f32> = input
             .into_iter()
-            .clock_recover(symbol_rate, sample_rate)
+            .clock_recover(symbol_rate, sample_rate, &GardnerConfig::default())
             .collect();
 
         let expected = (n_input as f32 * symbol_rate / sample_rate) as usize;
@@ -215,7 +216,7 @@ mod tests {
 
         let output: Vec<f32> = signal
             .into_iter()
-            .clock_recover(symbol_rate, sample_rate)
+            .clock_recover(symbol_rate, sample_rate, &GardnerConfig::default())
             .collect();
 
         // Skip first 25% for loop settling, check chip polarity matches
@@ -275,7 +276,7 @@ mod tests {
 
         let output: Vec<f32> = signal
             .into_iter()
-            .clock_recover(symbol_rate, sample_rate)
+            .clock_recover(symbol_rate, sample_rate, &GardnerConfig::default())
             .collect();
 
         // Should track the actual rate, not the nominal — output count

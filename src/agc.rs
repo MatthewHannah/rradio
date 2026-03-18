@@ -6,6 +6,7 @@
 /// composability with the DSP chain.
 
 use crate::filterable::Filter;
+use crate::rds_config::AgcConfig;
 
 pub struct Agc {
     power_estimate: f32,
@@ -16,17 +17,12 @@ pub struct Agc {
 }
 
 impl Agc {
-    /// Create a new AGC.
-    ///
-    /// - `sample_rate`: input sample rate in Hz
-    /// - `bandwidth_hz`: AGC tracking bandwidth (how fast it adapts)
-    /// - `target_rms`: desired output RMS amplitude
-    pub fn new(sample_rate: f32, bandwidth_hz: f32, target_rms: f32) -> Self {
-        let alpha = 2.0 * std::f32::consts::PI * bandwidth_hz / sample_rate;
+    pub fn new(sample_rate: f32, config: &AgcConfig) -> Self {
+        let alpha = 2.0 * std::f32::consts::PI * config.bandwidth_hz / sample_rate;
         Agc {
             power_estimate: 0.0,
             alpha: alpha.clamp(0.0, 1.0),
-            target_power: target_rms * target_rms,
+            target_power: config.target_rms * config.target_rms,
             max_gain: 100.0,
             initialized: false,
         }
@@ -59,7 +55,7 @@ mod tests {
 
     #[test]
     fn test_converges_to_target() {
-        let mut agc = Agc::new(9600.0, 50.0, 1.0);
+        let mut agc = Agc::new(9600.0, &AgcConfig { bandwidth_hz: 50.0, target_rms: 1.0 });
         let input_amp = 0.1;
         let mut last_output = 0.0;
         for i in 0..5000 {
@@ -74,7 +70,7 @@ mod tests {
 
     #[test]
     fn test_attenuates_strong_signal() {
-        let mut agc = Agc::new(9600.0, 50.0, 1.0);
+        let mut agc = Agc::new(9600.0, &AgcConfig { bandwidth_hz: 50.0, target_rms: 1.0 });
         let input_amp = 10.0;
         let mut last_output = 0.0;
         for i in 0..5000 {
@@ -89,7 +85,7 @@ mod tests {
 
     #[test]
     fn test_handles_zero_input() {
-        let mut agc = Agc::new(9600.0, 50.0, 1.0);
+        let mut agc = Agc::new(9600.0, &AgcConfig { bandwidth_hz: 50.0, target_rms: 1.0 });
         for _ in 0..1000 {
             let out = agc.process(0.0);
             assert!(out.is_finite(), "Output should be finite, got {}", out);
@@ -99,7 +95,7 @@ mod tests {
 
     #[test]
     fn test_tracks_amplitude_step() {
-        let mut agc = Agc::new(9600.0, 50.0, 1.0);
+        let mut agc = Agc::new(9600.0, &AgcConfig { bandwidth_hz: 50.0, target_rms: 1.0 });
         for i in 0..5000 {
             let x = 0.5 * if i % 4 < 2 { 1.0 } else { -1.0 };
             agc.process(x);

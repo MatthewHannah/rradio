@@ -89,33 +89,144 @@ If no config file is provided, use current hardcoded defaults.
 
 ## Implementation Order
 
-### Step 1: SigMF Recording
+### Step 1: SigMF Recording ✅
 
-Add `--record <path>` flag to write IQ to disk from the soapy/pluto
-source thread. Write the `.sigmf-meta` JSON with sample rate, frequency,
-data format, and timestamp. The recording runs concurrently with normal
-operation — you hear audio while it records.
+Implemented. `--record <path>` writes IQ to SigMF v1.2.0 files.
+`--duration <seconds>` auto-stops after the specified time.
+Three test recordings captured (94.9, 96.1, 100.5 MHz).
 
-### Step 2: BLER Metrics Output
+### Step 2: BLER Metrics Output ✅
 
-Add `RDSMETRIC` tagged JSON lines from the RDS pipeline. Emit one per
-group decode with rolling BLER and state. Emit `RDSSUMMARY` on shutdown.
-Only emit when `--rds-debug` or a new `--rds-metrics` flag is set.
+Implemented. `--rds-metrics` emits `RDSMETRIC` tagged JSON per group
+and `RDSSUMMARY` at exit. Grep-friendly for experiment scripting.
 
 ### Step 3: JSON Pipeline Config
 
-Add `--rds-config <path>` flag. Parse the JSON at startup, construct the
-pipeline with the specified parameters instead of hardcoded values. This
-requires threading the config through `rds_pipeline()` and adjusting
-filter/loop construction accordingly.
+Add `--rds-config <path>` flag. Parse the JSON at startup into an
+`RdsConfig` struct, clone it to both the signal pipeline thread and
+the RDS pipeline thread.
 
-The matched filter taps must be regenerated when `matched_filter_spans`
-or `matched_filter_window` changes. Two options:
-- Compute taps at runtime in Rust (port the Python tap generator)
-- Pre-generate taps for each config and include as files
+#### Config Structure
 
-Runtime generation is more flexible and eliminates the
-Python-to-Rust-constant pipeline.
+A top-level `RdsConfig` struct with nested per-component configs:
+
+```rust
+// src/rds_config.rs
+
+#[derive(Clone, Deserialize)]
+#[serde(default)]
+pub struct RdsConfig {
+    pub baseband_lpf_hz: f32,       // used by signal_pipeline (wfm_audio)
+    pub anti_alias_cutoff_hz: f32,  // used by rds_pipeline
+    pub anti_alias_order: usize,
+    pub matched_filter_spans: usize,
+    pub matched_filter_window: String,
+    pub agc: AgcConfig,
+    pub costas: CostasConfig,
+    pub gardner: GardnerConfig,
+    pub sync: SyncConfig,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(default)]
+pub struct AgcConfig {
+    pub bandwidth_hz: f32,  // default 10
+    pub target_rms: f32,    // default 0.001
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(default)]
+pub struct CostasConfig {
+    pub loop_bw: f32,  // default 0.05
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(default)]
+pub struct GardnerConfig {
+    pub loop_bw: f32,  // default 0.01
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(default)]
+pub struct SyncConfig {
+    pub crc_correction_max_bits: u32,  // default 2
+    pub loss_threshold: usize,         // default 5
+}
+```
+
+Each component module (agc.rs, costas.rs, gardner_clock_recovery.rs,
+rds_block_sync.rs) accepts its own config in its constructor. The
+module owns its config type — RdsConfig just nests them.
+
+`#[serde(default)]` on every struct means a partial or empty JSON
+uses defaults for missing fields. An empty `{}` gives all defaults.
+
+#### JSON File Format
+
+```json
+{
+  "baseband_lpf_hz": 4000,
+  "anti_alias_cutoff_hz": 9000,
+  "anti_alias_order": 3,
+  "matched_filter_spans": 8,
+  "matched_filter_window": "blackman",
+  "agc": { "bandwidth_hz": 10, "target_rms": 0.001 },
+  "costas": { "loop_bw": 0.05 },
+  "gardner": { "loop_bw": 0.01 },
+  "sync": { "crc_correction_max_bits": 2, "loss_threshold": 5 }
+}
+```
+
+Any field can be omitted to use its default. A minimal config tuning
+just the Costas loop:
+
+```json
+{ "costas": { "loop_bw": 0.08 } }
+```
+
+#### Threading
+
+`RdsConfig` is `Clone`. In `run()`:
+
+```rust
+let rds_config = load_config(config_path); // or RdsConfig::default()
+let rds_config2 = rds_config.clone();
+
+// Signal pipeline thread gets the config for baseband_lpf_hz
+signal_pipeline(..., rds_config);
+
+// RDS pipeline thread gets the config for everything else
+rds_pipeline(..., rds_config2);
+```
+
+Both threads own their own copy. No shared state, no synchronization.
+
+#### Matched Filter Tap Generation (Runtime)
+
+Port the tap generation from `py/rds_manchester_rrc.py` to Rust so
+taps can be computed at startup from `matched_filter_spans` and
+`matched_filter_window`. This is ~30 lines of math:
+
+1. Compute RRC: `h[n] = sinc(u+0.5) + sinc(u-0.5)` for each tap
+2. Apply window (Blackman/Hamming/Hann)
+3. Convolve with Manchester waveform `[+1...+1, -1...-1]`
+4. Normalize to unit energy
+
+The hardcoded `RDS_MANCHESTER_RRC_TAPS` const stays as a fallback
+for the default config, but runtime generation is used when config
+specifies non-default filter parameters.
+
+#### Chain Construction
+
+Each component's constructor takes its config directly (no dual
+`new()` / `with_config()` paths). Tests use `Config::default()`:
+
+```rust
+.dsp_filter(Agc::new(rds_fs, &config.agc))
+.clock_recover(bit_rate, rds_fs, &config.gardner)
+.costas_demod(&config.costas)
+.rds_block_sync(&config.sync, debug)
+```
 
 ### Step 4: Experiment Runner (Python)
 

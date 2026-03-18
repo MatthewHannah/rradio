@@ -5,6 +5,7 @@
 /// This collapses the complex BPSK signal to a real ±amplitude stream.
 
 use num_complex::Complex32;
+use crate::rds_config::CostasConfig;
 
 pub struct CostasLoop {
     phase: f32,
@@ -14,13 +15,13 @@ pub struct CostasLoop {
 }
 
 impl CostasLoop {
-    pub fn new(loop_bw: f32) -> Self {
+    pub fn new(config: &CostasConfig) -> Self {
         // PI loop filter gains from 2nd-order PLL control theory.
         // Same formula as Gardner — see gardner_clock_recovery.rs for details.
         let damping = 0.707_f32;
-        let denom = 1.0 + 2.0 * damping * loop_bw + loop_bw * loop_bw;
-        let alpha = 4.0 * damping * loop_bw / denom;
-        let beta = 4.0 * loop_bw * loop_bw / denom;
+        let denom = 1.0 + 2.0 * damping * config.loop_bw + config.loop_bw * config.loop_bw;
+        let alpha = 4.0 * damping * config.loop_bw / denom;
+        let beta = 4.0 * config.loop_bw * config.loop_bw / denom;
 
         CostasLoop {
             phase: 0.0,
@@ -71,16 +72,16 @@ impl<I: Iterator<Item = Complex32>> Iterator for CostasIter<I> {
 }
 
 pub trait CostasDemodulable {
-    fn costas_demod(self, loop_bw: f32) -> CostasIter<Self>
+    fn costas_demod(self, config: &CostasConfig) -> CostasIter<Self>
     where
         Self: Sized + Iterator<Item = Complex32>;
 }
 
 impl<I: Iterator<Item = Complex32>> CostasDemodulable for I {
-    fn costas_demod(self, loop_bw: f32) -> CostasIter<Self> {
+    fn costas_demod(self, config: &CostasConfig) -> CostasIter<Self> {
         CostasIter {
             iter: self,
-            costas: CostasLoop::new(loop_bw),
+            costas: CostasLoop::new(config),
         }
     }
 }
@@ -92,7 +93,7 @@ mod tests {
 
     #[test]
     fn test_removes_phase_offset() {
-        let mut costas = CostasLoop::new(0.05);
+        let mut costas = CostasLoop::new(&CostasConfig::default());
         let offset = 30.0_f32.to_radians();
         let rot = Complex32::new(offset.cos(), offset.sin());
 
@@ -111,7 +112,7 @@ mod tests {
 
     #[test]
     fn test_tracks_frequency_offset() {
-        let mut costas = CostasLoop::new(0.05);
+        let mut costas = CostasLoop::new(&CostasConfig::default());
         let freq_offset = 0.01_f32; // radians per sample
 
         let mut output = Vec::new();
@@ -130,7 +131,7 @@ mod tests {
 
     #[test]
     fn test_no_offset_passthrough() {
-        let mut costas = CostasLoop::new(0.05);
+        let mut costas = CostasLoop::new(&CostasConfig::default());
 
         let symbols: Vec<f32> = (0..500)
             .map(|i| if (i * 3 + 1) % 5 > 2 { 1.0 } else { -1.0 })
