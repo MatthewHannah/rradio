@@ -100,10 +100,13 @@ static ERROR_CORRECTION_TABLE: [u32; 1024] = include!("rds_error_table.inc");
 
 #[derive(Debug, Clone)]
 pub struct RdsGroup {
-    pub blocks: [u16; 4],  // 16 data bits from blocks A, B, C/C', D
-    pub group_type: u8,    // 0–15, from block B bits 12–15
-    pub version: bool,     // false = type A, true = type B (block B bit 11)
-    pub pi_code: u16,      // block A always carries the PI code
+    pub blocks: [u16; 4],
+    pub group_type: u8,
+    pub version: bool,
+    pub pi_code: u16,
+    pub total_blocks_checked: u64,
+    pub total_blocks_passed: u64,
+    pub rolling_bler: f64,
 }
 
 enum SyncState {
@@ -124,10 +127,18 @@ pub struct RdsBlockSync<I: Iterator<Item = u8>> {
     consecutive_good: usize,
     consecutive_bad: usize,
     synced_groups: usize,
+    debug: bool,
+    total_blocks_checked: u64,
+    total_blocks_passed: u64,
+    bler_history: Vec<bool>,  // ring buffer: true = passed
+    bler_idx: usize,
+    bler_passed: usize,
 }
 
+const BLER_WINDOW: usize = 200;
+
 impl<I: Iterator<Item = u8>> RdsBlockSync<I> {
-    pub fn new(iter: I) -> Self {
+    pub fn new(iter: I, debug: bool) -> Self {
         RdsBlockSync {
             iter,
             shift_reg: 0,
@@ -140,7 +151,32 @@ impl<I: Iterator<Item = u8>> RdsBlockSync<I> {
             consecutive_good: 0,
             consecutive_bad: 0,
             synced_groups: 0,
+            debug,
+            total_blocks_checked: 0,
+            total_blocks_passed: 0,
+            bler_history: vec![false; BLER_WINDOW],
+            bler_idx: 0,
+            bler_passed: 0,
         }
+    }
+
+    fn record_block(&mut self, passed: bool) {
+        self.total_blocks_checked += 1;
+        if passed {
+            self.total_blocks_passed += 1;
+        }
+        // Rolling window
+        let old = self.bler_history[self.bler_idx];
+        if old { self.bler_passed -= 1; }
+        self.bler_history[self.bler_idx] = passed;
+        if passed { self.bler_passed += 1; }
+        self.bler_idx = (self.bler_idx + 1) % BLER_WINDOW;
+    }
+
+    fn rolling_bler(&self) -> f64 {
+        let window = self.total_blocks_checked.min(BLER_WINDOW as u64) as usize;
+        if window == 0 { return 0.0; }
+        1.0 - self.bler_passed as f64 / window as f64
     }
 
     fn push_bit(&mut self, bit: u8) -> Option<RdsGroup> {
@@ -207,7 +243,9 @@ impl<I: Iterator<Item = u8>> RdsBlockSync<I> {
                     };
 
                     if self.consecutive_good >= SYNC_THRESHOLD {
-                        eprintln!("RDS sync: LOCKED after {} consecutive blocks", self.consecutive_good);
+                        if self.debug {
+                            eprintln!("RDS sync: LOCKED after {} consecutive blocks", self.consecutive_good);
+                        }
                         self.state = SyncState::Locked;
                     } else {
                         self.state = SyncState::Tentative {
@@ -232,6 +270,7 @@ impl<I: Iterator<Item = u8>> RdsBlockSync<I> {
                 let expected = expected_next_offsets(self.current_offset_idx);
 
                 if let Some((idx, data)) = check_block(self.shift_reg, expected, true) {
+                    self.record_block(true);
                     let block_pos = BLOCK_FOR_OFFSET[idx];
                     self.blocks[block_pos] = data;
                     self.block_idx = block_pos;
@@ -243,6 +282,7 @@ impl<I: Iterator<Item = u8>> RdsBlockSync<I> {
                         return Some(self.emit_group());
                     }
                 } else {
+                    self.record_block(false);
                     self.consecutive_bad += 1;
 
                     // Advance expected position even on error
@@ -252,8 +292,10 @@ impl<I: Iterator<Item = u8>> RdsBlockSync<I> {
                     }
 
                     if self.consecutive_bad >= LOSS_THRESHOLD {
-                        eprintln!("RDS sync: LOST after {} consecutive bad blocks (total groups: {})",
-                            self.consecutive_bad, self.synced_groups);
+                        if self.debug {
+                            eprintln!("RDS sync: LOST after {} consecutive bad blocks (total groups: {})",
+                                self.consecutive_bad, self.synced_groups);
+                        }
                         self.state = SyncState::Searching;
                         self.consecutive_good = 0;
                         self.consecutive_bad = 0;
@@ -271,6 +313,9 @@ impl<I: Iterator<Item = u8>> RdsBlockSync<I> {
             group_type: ((b >> 12) & 0x0F) as u8,
             version: ((b >> 11) & 1) == 1,
             pi_code: self.blocks[0],
+            total_blocks_checked: self.total_blocks_checked,
+            total_blocks_passed: self.total_blocks_passed,
+            rolling_bler: self.rolling_bler(),
         };
         self.synced_groups += 1;
         self.blocks = [0; 4];
@@ -292,29 +337,39 @@ impl<I: Iterator<Item = u8>> Iterator for RdsBlockSync<I> {
 }
 
 pub trait RdsBlockSyncable {
-    fn rds_block_sync(self) -> RdsBlockSync<Self>
+    fn rds_block_sync(self, debug: bool) -> RdsBlockSync<Self>
     where
         Self: Sized + Iterator<Item = u8>;
 }
 
 impl<I: Iterator<Item = u8>> RdsBlockSyncable for I {
-    fn rds_block_sync(self) -> RdsBlockSync<Self> {
-        RdsBlockSync::new(self)
+    fn rds_block_sync(self, debug: bool) -> RdsBlockSync<Self> {
+        RdsBlockSync::new(self, debug)
     }
 }
 
-/// Accumulates RDS data across groups and prints complete strings.
+
+/// Current RDS display state returned by the decoder.
+pub struct RdsDisplayState {
+    pub ps: String,
+    pub rt: String,
+    pub pi_code: u16,
+    pub groups_decoded: u64,
+}
+
+/// Accumulates RDS data across groups.
 pub struct RdsDecoder {
-    ps: [u8; 8],          // Program Service name (8 chars)
-    ps_filled: u8,        // bitmask of which PS segments (0–3) we've received
-    ps_last_addr: usize,  // last PS address seen (detect wrap)
+    ps: [u8; 8],
+    ps_filled: u8,
+    ps_last_addr: usize,
 
-    rt: [u8; 64],         // RadioText (up to 64 chars)
-    rt_len: usize,        // length up to \r or end
-    rt_filled: u16,       // bitmask of which RT segments (0–15) we've received
-    rt_last_addr: usize,  // last RT address seen (detect wrap)
+    rt: [u8; 64],
+    rt_len: usize,
+    rt_filled: u16,
+    rt_last_addr: usize,
 
-    pi_code: u16,         // most recent valid PI code
+    pi_code: u16,
+    groups_decoded: u64,
 }
 
 impl RdsDecoder {
@@ -328,56 +383,67 @@ impl RdsDecoder {
             rt_filled: 0,
             rt_last_addr: 0xFF,
             pi_code: 0,
+            groups_decoded: 0,
         }
     }
 
-    pub fn process(&mut self, group: &RdsGroup) {
-        // Track PI code (ignore 0x0000 — likely corrupt)
+    pub fn process(&mut self, group: &RdsGroup) -> RdsDisplayState {
         if group.pi_code != 0 {
             self.pi_code = group.pi_code;
         }
+        self.groups_decoded += 1;
 
         match group.group_type {
             0 => self.decode_group_0(group),
             2 => self.decode_group_2(group),
             _ => {}
         }
+
+        self.display_state()
+    }
+
+    pub fn display_state(&self) -> RdsDisplayState {
+        let ps = self.ps.iter()
+            .map(|&c| Self::sanitize(c))
+            .collect::<String>()
+            .trim_end()
+            .to_string();
+        let len = self.rt_len.min(64);
+        let rt = self.rt[..len].iter()
+            .map(|&c| Self::sanitize(c))
+            .collect::<String>()
+            .trim_end()
+            .to_string();
+        RdsDisplayState {
+            ps,
+            rt,
+            pi_code: self.pi_code,
+            groups_decoded: self.groups_decoded,
+        }
     }
 
     fn decode_group_0(&mut self, group: &RdsGroup) {
         let addr = (group.blocks[1] & 0x03) as usize;
-
-        // New cycle: address wrapped back to 0 — print what we have
         if addr == 0 && self.ps_filled != 0 && self.ps_last_addr != 0 {
-            self.print_ps();
             self.ps = [b' '; 8];
             self.ps_filled = 0;
         }
-
         let c0 = ((group.blocks[3] >> 8) & 0xFF) as u8;
         let c1 = (group.blocks[3] & 0xFF) as u8;
         self.ps[addr * 2] = c0;
         self.ps[addr * 2 + 1] = c1;
         self.ps_filled |= 1 << addr;
         self.ps_last_addr = addr;
-
-        // Print current accumulated PS after each segment
-        self.print_ps();
     }
 
     fn decode_group_2(&mut self, group: &RdsGroup) {
         let addr = (group.blocks[1] & 0x0F) as usize;
-
-        // New cycle: address wrapped back — print what we have
         if addr == 0 && self.rt_filled != 0 && self.rt_last_addr != 0 {
-            self.print_rt();
             self.rt = [b' '; 64];
             self.rt_len = 64;
             self.rt_filled = 0;
         }
-
         if !group.version {
-            // 2A: 4 chars from blocks C and D
             let chars = [
                 ((group.blocks[2] >> 8) & 0xFF) as u8,
                 (group.blocks[2] & 0xFF) as u8,
@@ -387,16 +453,11 @@ impl RdsDecoder {
             let base = addr * 4;
             for (i, &c) in chars.iter().enumerate() {
                 if base + i < 64 {
-                    if c == 0x0D {
-                        // \r marks end of RadioText
-                        self.rt_len = base + i;
-                    } else {
-                        self.rt[base + i] = c;
-                    }
+                    if c == 0x0D { self.rt_len = base + i; }
+                    else { self.rt[base + i] = c; }
                 }
             }
         } else {
-            // 2B: 2 chars from block D
             let chars = [
                 ((group.blocks[3] >> 8) & 0xFF) as u8,
                 (group.blocks[3] & 0xFF) as u8,
@@ -404,43 +465,55 @@ impl RdsDecoder {
             let base = addr * 2;
             for (i, &c) in chars.iter().enumerate() {
                 if base + i < 64 {
-                    if c == 0x0D {
-                        self.rt_len = base + i;
-                    } else {
-                        self.rt[base + i] = c;
-                    }
+                    if c == 0x0D { self.rt_len = base + i; }
+                    else { self.rt[base + i] = c; }
                 }
             }
         }
-
         self.rt_filled |= 1 << addr;
         self.rt_last_addr = addr;
-
-        // Print current accumulated RT after each segment
-        self.print_rt();
     }
 
-    fn print_ps(&self) {
-        let ps_str: String = self.ps.iter()
-            .map(|&c| if c >= 0x20 && c < 0x7F { c as char } else { '?' })
-            .collect::<String>()
-            .trim_end()
-            .to_string();
-        if !ps_str.is_empty() {
-            eprintln!("RDS PS:   \"{}\"  (PI=0x{:04X})", ps_str, self.pi_code);
-        }
+    fn sanitize(c: u8) -> char {
+        if c >= 0x20 && c < 0x7F { c as char } else { ' ' }
+    }
+}
+
+/// Renders the RDS display to stderr using ANSI cursor control.
+pub struct RdsDisplay {
+    drawn: bool,
+}
+
+impl RdsDisplay {
+    pub fn new() -> Self {
+        RdsDisplay { drawn: false }
     }
 
-    fn print_rt(&self) {
-        let len = self.rt_len.min(64);
-        let rt_str: String = self.rt[..len].iter()
-            .map(|&c| if c >= 0x20 && c < 0x7F { c as char } else { '?' })
-            .collect::<String>()
-            .trim_end()
-            .to_string();
-        if !rt_str.is_empty() {
-            eprintln!("RDS RT:   \"{}\"  (PI=0x{:04X})", rt_str, self.pi_code);
+    pub fn render(&mut self, state: &RdsDisplayState) {
+        let pi = if state.pi_code != 0 {
+            format!("{:04X}", state.pi_code)
+        } else {
+            "----".to_string()
+        };
+
+        if self.drawn {
+            eprint!("\x1b[4A");
         }
+        self.drawn = true;
+
+        let width = 56;
+        let top_line = format!("  {}    PI: {}  Sync: \u{2713}  Groups: {}",
+            state.ps, pi, state.groups_decoded);
+        let rt_display = if state.rt.len() > width - 4 {
+            &state.rt[..width - 4]
+        } else {
+            &state.rt
+        };
+
+        eprintln!("\u{250c}{}\u{2510}", "\u{2500}".repeat(width));
+        eprintln!("\u{2502}{:<width$}\u{2502}", top_line, width = width);
+        eprintln!("\u{2502}  {:<w$}\u{2502}", rt_display, w = width - 2);
+        eprintln!("\u{2514}{}\u{2518}", "\u{2500}".repeat(width));
     }
 }
 
@@ -507,7 +580,7 @@ mod tests {
         }
 
         let bits = blocks_to_bits(&blocks);
-        let groups: Vec<RdsGroup> = bits.into_iter().rds_block_sync().collect();
+        let groups: Vec<RdsGroup> = bits.into_iter().rds_block_sync(false).collect();
 
         assert!(!groups.is_empty(), "Should decode at least one group");
 
@@ -540,7 +613,7 @@ mod tests {
             bits.extend(blocks_to_bits(&blocks));
         }
 
-        let groups: Vec<RdsGroup> = bits.into_iter().rds_block_sync().collect();
+        let groups: Vec<RdsGroup> = bits.into_iter().rds_block_sync(false).collect();
         assert!(groups.len() >= 2, "Should recover sync and decode groups after noise, got {}", groups.len());
     }
 }

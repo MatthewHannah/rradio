@@ -492,7 +492,7 @@ const RDS_MANCHESTER_RRC_TAPS: [f32; 144] = [
     -7.1691648e-08, 8.2718543e-09, 8.2718543e-09, -7.2474601e-22,
 ];
 
-fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<Complex32>>, wfm_fs: f32) {
+fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<Complex32>>, wfm_fs: f32, debug: bool) {
     let bit_rate = 1187.5_f32;
     let rds_iter = buffer::RecvBufIter::new(rds_rx);
 
@@ -527,21 +527,32 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<Complex32
             *prev_diff = diff_bit;
             Some(data_bit)
         })
-        .rds_block_sync();
+        .rds_block_sync(debug);
 
     let mut decoder = rds_block_sync::RdsDecoder::new();
+    let mut display = rds_block_sync::RdsDisplay::new();
 
     while !done.load(atomic::Ordering::SeqCst) {
         match groups.next() {
             Some(group) => {
-                decoder.process(&group);
+                let state = decoder.process(&group);
+                if debug {
+                    let version_str = if group.version { "B" } else { "A" };
+                    eprintln!("RDS Group {}{}: PI=0x{:04X} [{:04X} {:04X} {:04X} {:04X}]  BLER={:.1}%",
+                        group.group_type, version_str, group.pi_code,
+                        group.blocks[0], group.blocks[1], group.blocks[2], group.blocks[3],
+                        group.rolling_bler * 100.0);
+                    eprintln!("  PS=\"{}\"  RT=\"{}\"", state.ps, state.rt);
+                } else {
+                    display.render(&state);
+                }
             }
             None => break,
         }
     }
 }
 
-fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::AtomicBool>, obs_settings: AudioPipelineObservationSettings) {
+fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::AtomicBool>, obs_settings: AudioPipelineObservationSettings, rds_debug: bool) {
     let fs = match &iq_source {
         IqSource::Pluto { config } => config.fs,
         IqSource::Soapy { config } => config.fs,
@@ -581,7 +592,7 @@ fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::Ato
     // Thread 3: RDS consumer
     let done_ref = done_sig.clone();
     let rds_thread = std::thread::spawn(move || {
-        rds_pipeline(&done_ref, rds_rx, wfm_fs);
+        rds_pipeline(&done_ref, rds_rx, wfm_fs, rds_debug);
     });
 
     // Main thread: Audio consumer (downsample + interleave + output)
@@ -623,11 +634,15 @@ fn main() {
     // Extract -- args
     let mut positional = Vec::new();
     let mut wav_path: Option<String> = None;
+    let mut rds_debug = false;
     let mut i = 0;
     while i < args.len() {
         if args[i] == "--wav" {
             wav_path = Some(args.get(i + 1).expect("Usage: --wav <path>").clone());
             i += 2;
+        } else if args[i] == "--rds-debug" {
+            rds_debug = true;
+            i += 1;
         } else {
             positional.push(args[i].clone());
             i += 1;
@@ -649,7 +664,7 @@ fn main() {
                 * 1e3;
             let streamer = sigmf::SigmfStreamer::new(path).expect("Failed to open SigMF file");
             let source = IqSource::Sigmf { streamer, tune_offset };
-            run(source, audio_output, done_sig, obs_settings);
+            run(source, audio_output, done_sig, obs_settings, rds_debug);
         }
         Some("soapy") => {
             let filter = pos.next().expect("Usage: rradio soapy <filter> [station_mhz]");
@@ -663,7 +678,7 @@ fn main() {
                 bw: 600e6,
                 fs: 2.4e6,
             };
-            run(IqSource::Soapy { config }, audio_output, done_sig, obs_settings);
+            run(IqSource::Soapy { config }, audio_output, done_sig, obs_settings, rds_debug);
         }
         Some("pluto") => {
             let station: f32 = pos.next()
@@ -676,7 +691,7 @@ fn main() {
                 bw: 600e6,
                 fs: 2.4e6,
             };
-            run(IqSource::Pluto { config }, audio_output, done_sig, obs_settings);
+            run(IqSource::Pluto { config }, audio_output, done_sig, obs_settings, rds_debug);
         }
         _ => {
             eprintln!("Usage: rradio <source> [options] [--wav <output.wav>]");
