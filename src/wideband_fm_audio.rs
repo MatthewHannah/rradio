@@ -37,41 +37,22 @@ impl<I> WidebandFmAudio<I> where I: Iterator<Item = f32> {
     fn process(&mut self, s: f32) -> WidebandFmAudioOutput {
         let mono = s;
         let StereoDownmixerOutput { stereo, rds, stereo_lock, rds_lock } = self.downmix.process(s);
-
-        let l = self
-            .l_audio_filt
-            .process(self.l_deemph.process(mono + stereo));
-        let r = self
-            .r_audio_filt
-            .process(self.r_deemph.process(mono - stereo));
-
-        WidebandFmAudioOutput {
-            left: l,
-            right: r,
-            rds,
-            stereo_lock,
-            rds_lock,
-        }
+        let l = self.l_audio_filt.process(self.l_deemph.process(mono + stereo));
+        let r = self.r_audio_filt.process(self.r_deemph.process(mono - stereo));
+        WidebandFmAudioOutput { left: l, right: r, rds, stereo_lock, rds_lock }
     }
 }
 
 impl<I> Iterator for WidebandFmAudio<I> where I: Iterator<Item = f32> {
     type Item = WidebandFmAudioOutput;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let s = self.input.next()?;
-        Some(self.process(s))
-    }
+    fn next(&mut self) -> Option<Self::Item> { let s = self.input.next()?; Some(self.process(s)) }
 }
 
 pub trait WidebandFmAudioIterable {
     fn wfm_audio(self, fs: f32) -> WidebandFmAudio<Self> where Self: Sized;
 }
-
 impl <I> WidebandFmAudioIterable for I where I: Iterator<Item = f32> {
-    fn wfm_audio(self, fs: f32) -> WidebandFmAudio<Self> where Self: Sized {
-        WidebandFmAudio::new(fs, self)
-    }
+    fn wfm_audio(self, fs: f32) -> WidebandFmAudio<Self> where Self: Sized { WidebandFmAudio::new(fs, self) }
 }
 
 struct StereoDownmixer {
@@ -92,35 +73,22 @@ impl StereoDownmixer {
     fn new(fs: f32) -> Self {
         let pll_loop_filt = Biquad::lowpass(fs, 1000.0, 0.707);
         let pll = RealPll::new(38e3, fs, 0.05, pll_loop_filt, 2.0);
-
         let pll_rds_loop_filt = Biquad::lowpass(fs, 1000.0, 0.707);
         let pll_rds = RealPll::new(57e3, fs, 0.05, pll_rds_loop_filt, 3.0);
-
         let rds_filt: Biquad<Complex32> = Biquad::lowpass(fs, 4e3, 0.707);
         let rds_filt2 = rds_filt.clone();
-        StereoDownmixer {
-            pll,
-            pll_rds,
-            rds_filt,
-            rds_filt2,
-        }
+        StereoDownmixer { pll, pll_rds, rds_filt, rds_filt2 }
     }
 
     fn process(&mut self, s: f32) -> StereoDownmixerOutput {
-        // pilot extract
         let pll_out = self.pll.process(s);
         let rds_out = self.pll_rds.process_complex(s);
-
-        // Complex downmix: s * conj(carrier) → complex baseband
         let rds_baseband = rds_out.out * s;
         let rds = self.rds_filt.process(rds_baseband);
         let rds = self.rds_filt2.process(rds);
-
         StereoDownmixerOutput {
-            stereo: pll_out.out * s,
-            rds,
-            stereo_lock: pll_out.lock,
-            rds_lock: rds_out.lock,
+            stereo: pll_out.out * s, rds,
+            stereo_lock: pll_out.lock, rds_lock: rds_out.lock,
         }
     }
 }

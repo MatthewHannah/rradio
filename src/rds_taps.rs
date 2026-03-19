@@ -64,6 +64,44 @@ fn sinc(x: f64) -> f64 {
     }
 }
 
+/// Generate a windowed-sinc FIR lowpass filter.
+///
+/// Parameters:
+/// - `fs`: sample rate in Hz
+/// - `cutoff`: cutoff frequency in Hz
+/// - `num_taps`: number of filter taps (must be odd)
+/// - `window`: window function type
+///
+/// Returns a Vec<f32> of filter taps, normalized to unit DC gain.
+pub fn generate_lowpass_taps(fs: f64, cutoff: f64, num_taps: usize, window: &WindowType) -> Vec<f32> {
+    let num_taps = if num_taps % 2 == 0 { num_taps + 1 } else { num_taps };
+    let n_half = (num_taps / 2) as i64;
+    let fc = cutoff / fs; // normalized cutoff (0 to 0.5)
+
+    let mut h: Vec<f64> = (0..num_taps)
+        .map(|i| {
+            let n = i as i64 - n_half;
+            2.0 * fc * sinc(2.0 * fc * n as f64)
+        })
+        .collect();
+
+    // Apply window
+    let w = window.apply(num_taps);
+    for (h, w) in h.iter_mut().zip(w.iter()) {
+        *h *= w;
+    }
+
+    // Normalize to unit DC gain
+    let dc_gain: f64 = h.iter().sum();
+    if dc_gain.abs() > 0.0 {
+        for x in h.iter_mut() {
+            *x /= dc_gain;
+        }
+    }
+
+    h.iter().map(|&x| x as f32).collect()
+}
+
 /// Generate Manchester-shaped RRC matched filter taps.
 ///
 /// Parameters:
@@ -195,3 +233,21 @@ mod tests {
         assert!(long.len() > short.len(), "More spans = more taps");
     }
 }
+
+    #[test]
+    fn test_lowpass_dump() {
+        let taps = generate_lowpass_taps(240000.0, 4000.0, 201, &WindowType::Blackman);
+        assert_eq!(taps.len(), 201);
+        // Print first 10, middle, last 10 for comparison
+        for i in 0..10 {
+            eprintln!("tap[{}] = {:.15e}", i, taps[i]);
+        }
+        eprintln!("tap[100] = {:.15e}", taps[100]);
+        for i in 191..201 {
+            eprintln!("tap[{}] = {:.15e}", i, taps[i]);
+        }
+        // DC gain should be ~1.0
+        let dc: f32 = taps.iter().sum();
+        eprintln!("DC gain: {}", dc);
+        assert!((dc - 1.0).abs() < 0.001, "DC gain should be ~1.0, got {}", dc);
+    }

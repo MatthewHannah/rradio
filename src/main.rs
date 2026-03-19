@@ -83,6 +83,37 @@ fn spectrogram<T>(window_size: usize, overlap: usize, fs: f32, samples: &[T]) wh
     plot.show();
 }
 
+/// Save a PSD (power spectral density) plot to a PNG file.
+#[allow(dead_code)]
+fn save_psd_png(samples: &[Complex32], fs: f32, title: &str, path: &str) {
+    let mut planner = FftPlanner::<f32>::new();
+    let n = samples.len().min(8192);
+    let fft = planner.plan_fft_forward(n);
+
+    let mut working: Vec<Complex32> = samples[..n].to_vec();
+    fft.process(&mut working);
+
+    let mut holder = vec![Complex32::zero(); n];
+    holder[n/2..].copy_from_slice(&working[..n/2]);
+    holder[..n/2].copy_from_slice(&working[n/2..]);
+    let magnitudes: Vec<f32> = holder.iter().map(|s| s.norm().log10() * 20.0).collect();
+    let freqs: Vec<f32> = (0..n).map(|i| i as f32 * fs / n as f32 - fs / 2.0).collect();
+
+    let mut plot = Plot::new();
+    let trace = Scatter::new(freqs, magnitudes);
+    plot.add_trace(trace);
+    plot.set_layout(plotly::Layout::new().title(title));
+    plot.write_image(path, plotly::ImageFormat::PNG, 1200, 600, 1.0);
+    eprintln!("Saved PSD: {}", path);
+}
+
+/// Save a PSD of real-valued samples to a PNG file.
+#[allow(dead_code)]
+fn save_real_psd_png(samples: &[f32], fs: f32, title: &str, path: &str) {
+    let complex: Vec<Complex32> = samples.iter().map(|&s| Complex32::new(s, 0.0)).collect();
+    save_psd_png(&complex, fs, title, path);
+}
+
 #[allow(dead_code)]
 fn plot_freq_resp(samples: &[Complex32], fs: f32) {
     let mut planner = FftPlanner::<f32>::new();
@@ -271,6 +302,7 @@ fn signal_pipeline(
     mut rds_out: buffer::SendBuf<Vec<Complex32>>,
     settings: SignalPipelineSettings,
     obs_settings: AudioPipelineObservationSettings,
+    mpx_path: Option<String>,
 ) {
     let samples = buffer::RecvBufIter::new(inbuf);
 
@@ -306,6 +338,27 @@ fn signal_pipeline(
     let demoded = demoded.maybe_spy(48000, move |audio_samples| {
         spectrogram(1024, 512, fs_spy, &audio_samples);
     }, obs_settings.spy_demoded);
+
+    // Optional MPX output: write FM-demodulated baseband to WAV
+    let mut mpx_writer = mpx_path.map(|path| {
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: _fs as u32,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        hound::WavWriter::create(&path, spec)
+            .unwrap_or_else(|e| panic!("Failed to create MPX file {}: {}", path, e))
+    });
+
+    // Tap demoded signal for MPX writing, then feed to wfm_audio
+    let demoded = demoded.inspect(move |&s| {
+        if let Some(ref mut writer) = mpx_writer {
+            // Scale to i16 range — FM demod output is roughly ±1
+            let sample = (s * 16000.0).clamp(-32767.0, 32767.0) as i16;
+            let _ = writer.write_sample(sample);
+        }
+    });
 
     // Wideband FM audio (stereo + RDS extraction) — tee to two consumers
     let mut wfm = demoded.wfm_audio(_fs);
@@ -436,7 +489,7 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<Complex32
     let bit_rate = 1187.5_f32;
     let rds_iter = buffer::RecvBufIter::new(rds_rx);
 
-    // Anti-alias filter before ÷12 decimation (complex)
+    // Anti-alias filter before decimation (complex biquads)
     let aa_filters: Vec<biquad::Biquad<Complex32>> = (0..config.anti_alias_order)
         .map(|_| biquad::Biquad::lowpass(wfm_fs, config.anti_alias_cutoff_hz, 0.707))
         .collect();
@@ -452,8 +505,7 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<Complex32
     let taps = rds_taps::generate_manchester_rrc_taps(RDS_FS as f64, config.matched_filter_spans, &window);
     let matched_filter: fir::Fir<Complex32> = fir::Fir::new(taps);
 
-    // Build the iterator chain. Anti-alias filters are applied dynamically
-    // based on config.anti_alias_order.
+    // Build the iterator chain
     let mut chain: Box<dyn Iterator<Item = Complex32>> = Box::new(rds_iter);
     for aa in aa_filters {
         chain = Box::new(chain.dsp_filter(aa));
@@ -538,7 +590,7 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<Complex32
     }
 }
 
-fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::AtomicBool>, obs_settings: AudioPipelineObservationSettings, rds_debug: bool, rds_metrics: bool, record_path: Option<String>, rds_config: rds_config::RdsConfig) {
+fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::AtomicBool>, obs_settings: AudioPipelineObservationSettings, rds_debug: bool, rds_metrics: bool, record_path: Option<String>, rds_config: rds_config::RdsConfig, mpx_path: Option<String>) {
     let fs = match &iq_source {
         IqSource::Pluto { config } => config.fs,
         IqSource::Soapy { config } => config.fs,
@@ -659,7 +711,7 @@ fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::Ato
     // Thread 2: Signal pipeline (FM demod + stereo/RDS extraction → tee)
     let done_ref = done_sig.clone();
     let signal_thread = std::thread::spawn(move || {
-        signal_pipeline(&done_ref, fs, pipeline_rx, audio_tx, rds_tx, settings, obs_settings);
+        signal_pipeline(&done_ref, fs, pipeline_rx, audio_tx, rds_tx, settings, obs_settings, mpx_path);
     });
 
     // Thread 3: RDS consumer
@@ -715,6 +767,7 @@ fn main() {
     let mut rds_metrics = false;
     let mut rds_config_path: Option<String> = None;
     let mut record_path: Option<String> = None;
+    let mut mpx_path: Option<String> = None;
     let mut duration_secs: Option<f64> = None;
     let mut i = 0;
     while i < args.len() {
@@ -732,6 +785,9 @@ fn main() {
             i += 2;
         } else if args[i] == "--record" {
             record_path = Some(args.get(i + 1).expect("Usage: --record <path>").clone());
+            i += 2;
+        } else if args[i] == "--mpx" {
+            mpx_path = Some(args.get(i + 1).expect("Usage: --mpx <path.wav>").clone());
             i += 2;
         } else if args[i] == "--duration" {
             duration_secs = Some(args.get(i + 1).expect("Usage: --duration <seconds>")
@@ -774,7 +830,7 @@ fn main() {
                 * 1e3;
             let streamer = sigmf::SigmfStreamer::new(path).expect("Failed to open SigMF file");
             let source = IqSource::Sigmf { streamer, tune_offset };
-            run(source, audio_output, done_sig, obs_settings, rds_debug, rds_metrics, record_path, rds_config.clone());
+            run(source, audio_output, done_sig, obs_settings, rds_debug, rds_metrics, record_path, rds_config.clone(), mpx_path.clone());
         }
         Some("soapy") => {
             let filter = pos.next().expect("Usage: rradio soapy <filter> [station_mhz]");
@@ -788,7 +844,7 @@ fn main() {
                 bw: 600e6,
                 fs: 2.4e6,
             };
-            run(IqSource::Soapy { config }, audio_output, done_sig, obs_settings, rds_debug, rds_metrics, record_path, rds_config.clone());
+            run(IqSource::Soapy { config }, audio_output, done_sig, obs_settings, rds_debug, rds_metrics, record_path, rds_config.clone(), mpx_path.clone());
         }
         Some("pluto") => {
             let station: f32 = pos.next()
@@ -801,7 +857,7 @@ fn main() {
                 bw: 600e6,
                 fs: 2.4e6,
             };
-            run(IqSource::Pluto { config }, audio_output, done_sig, obs_settings, rds_debug, rds_metrics, record_path, rds_config.clone());
+            run(IqSource::Pluto { config }, audio_output, done_sig, obs_settings, rds_debug, rds_metrics, record_path, rds_config.clone(), mpx_path.clone());
         }
         _ => {
             eprintln!("Usage: rradio <source> [options] [--wav <output.wav>]");

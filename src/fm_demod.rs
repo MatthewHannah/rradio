@@ -1,21 +1,21 @@
-use crate::biquad;
+use crate::filterable::Filter;
 
 use num_complex::Complex32;
 
-pub struct FmDemodulator {
-    loop_filter: biquad::Biquad<f32>,
+pub struct FmDemodulator<F: Filter<f32>> {
+    loop_filter: F,
     last_phase: f32,
 }
 
-impl FmDemodulator {
-    pub fn new(loop_filter: biquad::Biquad<f32>) -> Self {
+impl<F: Filter<f32>> FmDemodulator<F> {
+    pub fn new(loop_filter: F) -> Self {
         FmDemodulator {
-            loop_filter: loop_filter,
+            loop_filter,
             last_phase: 0.0,
         }
     }
 
-    pub fn process(&mut self, sample: num_complex::Complex32) -> f32 {
+    pub fn process(&mut self, sample: Complex32) -> f32 {
         let phase = sample.arg();
         let mut delta = phase - self.last_phase;
         if delta > std::f32::consts::PI {
@@ -28,21 +28,21 @@ impl FmDemodulator {
     }
 }
 
-pub struct FmDemodIter<I> {
+pub struct FmDemodIter<I, F: Filter<f32>> {
     iter: I,
-    demodulator: FmDemodulator,
+    demodulator: FmDemodulator<F>,
 }
 
-impl<I> FmDemodIter<I> where I: Iterator<Item = Complex32> {
-    pub fn new(iter: I, loop_filter: biquad::Biquad<f32>) -> Self {
+impl<I, F: Filter<f32>> FmDemodIter<I, F> where I: Iterator<Item = Complex32> {
+    pub fn new(iter: I, loop_filter: F) -> Self {
         FmDemodIter {
-            iter: iter,
+            iter,
             demodulator: FmDemodulator::new(loop_filter),
         }
     }
 }
 
-impl<I> Iterator for FmDemodIter<I> where I: Iterator<Item = Complex32> {
+impl<I, F: Filter<f32>> Iterator for FmDemodIter<I, F> where I: Iterator<Item = Complex32> {
     type Item = f32;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -52,11 +52,11 @@ impl<I> Iterator for FmDemodIter<I> where I: Iterator<Item = Complex32> {
 }
 
 pub trait FmDemodulatable {
-    fn fm_demodulate(self, loop_filter: biquad::Biquad<f32>) -> FmDemodIter<Self> where Self: Sized;
+    fn fm_demodulate<F: Filter<f32>>(self, loop_filter: F) -> FmDemodIter<Self, F> where Self: Sized;
 }
 
 impl<I> FmDemodulatable for I where I: Iterator<Item = Complex32> {
-    fn fm_demodulate(self, loop_filter: biquad::Biquad<f32>) -> FmDemodIter<Self> {
+    fn fm_demodulate<F: Filter<f32>>(self, loop_filter: F) -> FmDemodIter<Self, F> {
         FmDemodIter::new(self, loop_filter)
     }
 }
