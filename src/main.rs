@@ -280,9 +280,14 @@ fn signal_pipeline(
     }, obs_settings.spy_iq);
 
     // IQ filtering + downsample
-    let filt1 = biquad::Biquad::lowpass(fs, 300000.0, 0.707);
-    let filt2 = filt1.clone();
-    let filtered = samples.dsp_filter(filt1).dsp_filter(filt2);
+    let iq_filter_stages = 2;
+    let iq_filters: Vec<biquad::Biquad<Complex32>> = (0..iq_filter_stages)
+        .map(|_| biquad::Biquad::lowpass(fs, 300000.0, 0.707))
+        .collect();
+    let mut filtered: Box<dyn Iterator<Item = Complex32>> = Box::new(samples);
+    for filt in iq_filters {
+        filtered = Box::new(filtered.dsp_filter(filt));
+    }
     let fs: f32 = fs / (settings.iq_downsample as f32);
     let resampled = filtered.downsample(settings.iq_downsample);
 
@@ -477,7 +482,7 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<Complex32
 
     while !done.load(atomic::Ordering::SeqCst) {
         match groups.next() {
-            Some(group) => {
+            Some(rds_block_sync::SyncEvent::Group(group)) => {
                 let state = decoder.process(&group);
                 let elapsed = start_time.elapsed().as_secs_f64();
 
@@ -499,7 +504,26 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<Complex32
                         group.rolling_bler * 100.0);
                     eprintln!("  PS=\"{}\"  RT=\"{}\"", state.ps, state.rt);
                 } else if !metrics {
+                    display.set_synced(true);
                     display.render(&state);
+                }
+            }
+            Some(rds_block_sync::SyncEvent::Locked) => {
+                if !metrics && !debug {
+                    display.set_synced(true);
+                    display.render(&decoder.display_state());
+                }
+            }
+            Some(rds_block_sync::SyncEvent::LostSync) => {
+                if !metrics && !debug {
+                    display.set_synced(false);
+                    display.render(&decoder.display_state());
+                }
+            }
+            Some(rds_block_sync::SyncEvent::Searching) => {
+                if !metrics && !debug {
+                    display.set_synced(false);
+                    display.render(&decoder.display_state());
                 }
             }
             None => break,

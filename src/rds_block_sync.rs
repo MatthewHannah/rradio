@@ -105,6 +105,18 @@ pub struct RdsGroup {
     pub rolling_bler: f64,
 }
 
+/// Events yielded by the block sync iterator.
+pub enum SyncEvent {
+    /// A complete group was decoded.
+    Group(RdsGroup),
+    /// Sync was just lost.
+    LostSync,
+    /// Sync was just acquired.
+    Locked,
+    /// Still searching (emitted periodically).
+    Searching,
+}
+
 enum SyncState {
     Searching,
     Tentative { expected_offsets: &'static [usize], bits_remaining: usize },
@@ -131,9 +143,11 @@ pub struct RdsBlockSync<I: Iterator<Item = u8>> {
     bler_history: Vec<bool>,  // ring buffer: true = passed
     bler_idx: usize,
     bler_passed: usize,
+    searching_counter: usize,
 }
 
 const BLER_WINDOW: usize = 200;
+const SEARCHING_REPORT_INTERVAL: usize = 1187; // ~1 second of bits
 
 impl<I: Iterator<Item = u8>> RdsBlockSync<I> {
     pub fn new(iter: I, config: &SyncConfig, debug: bool) -> Self {
@@ -157,6 +171,7 @@ impl<I: Iterator<Item = u8>> RdsBlockSync<I> {
             bler_history: vec![false; BLER_WINDOW],
             bler_idx: 0,
             bler_passed: 0,
+            searching_counter: 0,
         }
     }
 
@@ -179,7 +194,7 @@ impl<I: Iterator<Item = u8>> RdsBlockSync<I> {
         1.0 - self.bler_passed as f64 / window as f64
     }
 
-    fn push_bit(&mut self, bit: u8) -> Option<RdsGroup> {
+    fn push_bit(&mut self, bit: u8) -> Option<SyncEvent> {
         self.shift_reg = ((self.shift_reg << 1) | (bit as u32)) & 0x03FF_FFFF; // 26 bits
         self.bit_count += 1;
         self.bits_in_block += 1;
@@ -189,6 +204,15 @@ impl<I: Iterator<Item = u8>> RdsBlockSync<I> {
                 if self.bit_count < 26 {
                     return None;
                 }
+
+                // Periodic searching notification
+                self.searching_counter += 1;
+                let emit_searching = if self.searching_counter >= SEARCHING_REPORT_INTERVAL {
+                    self.searching_counter = 0;
+                    true
+                } else {
+                    false
+                };
 
                 // Check syndrome against all offset words
                 let syn = syndrome(self.shift_reg);
@@ -203,6 +227,7 @@ impl<I: Iterator<Item = u8>> RdsBlockSync<I> {
                         self.bits_in_block = 0;
                         self.consecutive_good = 1;
                         self.consecutive_bad = 0;
+                        self.searching_counter = 0;
 
                         self.state = SyncState::Tentative {
                             expected_offsets: expected_next_offsets(idx),
@@ -211,7 +236,7 @@ impl<I: Iterator<Item = u8>> RdsBlockSync<I> {
                         return None;
                     }
                 }
-                None
+                if emit_searching { Some(SyncEvent::Searching) } else { None }
             }
 
             SyncState::Tentative { expected_offsets, bits_remaining } => {
@@ -236,8 +261,7 @@ impl<I: Iterator<Item = u8>> RdsBlockSync<I> {
                     self.consecutive_good += 1;
 
                     let group = if block_pos == 3 {
-                        // Completed group D — emit group
-                        Some(self.emit_group())
+                        Some(SyncEvent::Group(self.emit_group()))
                     } else {
                         None
                     };
@@ -247,6 +271,8 @@ impl<I: Iterator<Item = u8>> RdsBlockSync<I> {
                             eprintln!("RDS sync: LOCKED after {} consecutive blocks", self.consecutive_good);
                         }
                         self.state = SyncState::Locked;
+                        // If we also have a group, return that; otherwise return Locked
+                        return group.or(Some(SyncEvent::Locked));
                     } else {
                         self.state = SyncState::Tentative {
                             expected_offsets: expected_next_offsets(idx),
@@ -279,7 +305,7 @@ impl<I: Iterator<Item = u8>> RdsBlockSync<I> {
                     self.consecutive_bad = 0;
 
                     if block_pos == 3 {
-                        return Some(self.emit_group());
+                        return Some(SyncEvent::Group(self.emit_group()));
                     }
                 } else {
                     self.record_block(false);
@@ -299,6 +325,7 @@ impl<I: Iterator<Item = u8>> RdsBlockSync<I> {
                         self.state = SyncState::Searching;
                         self.consecutive_good = 0;
                         self.consecutive_bad = 0;
+                        return Some(SyncEvent::LostSync);
                     }
                 }
                 None
@@ -322,13 +349,13 @@ impl<I: Iterator<Item = u8>> RdsBlockSync<I> {
 }
 
 impl<I: Iterator<Item = u8>> Iterator for RdsBlockSync<I> {
-    type Item = RdsGroup;
+    type Item = SyncEvent;
 
-    fn next(&mut self) -> Option<RdsGroup> {
+    fn next(&mut self) -> Option<SyncEvent> {
         loop {
             let bit = self.iter.next()?;
-            if let Some(group) = self.push_bit(bit) {
-                return Some(group);
+            if let Some(event) = self.push_bit(bit) {
+                return Some(event);
             }
         }
     }
@@ -422,10 +449,6 @@ impl RdsDecoder {
 
     fn decode_group_0(&mut self, group: &RdsGroup) {
         let addr = (group.blocks[1] & 0x03) as usize;
-        if addr == 0 && self.ps_filled != 0 && self.ps_last_addr != 0 {
-            self.ps = [b' '; 8];
-            self.ps_filled = 0;
-        }
         let c0 = ((group.blocks[3] >> 8) & 0xFF) as u8;
         let c1 = (group.blocks[3] & 0xFF) as u8;
         self.ps[addr * 2] = c0;
@@ -436,11 +459,6 @@ impl RdsDecoder {
 
     fn decode_group_2(&mut self, group: &RdsGroup) {
         let addr = (group.blocks[1] & 0x0F) as usize;
-        if addr == 0 && self.rt_filled != 0 && self.rt_last_addr != 0 {
-            self.rt = [b' '; 64];
-            self.rt_len = 64;
-            self.rt_filled = 0;
-        }
         if !group.version {
             let chars = [
                 ((group.blocks[2] >> 8) & 0xFF) as u8,
@@ -480,14 +498,48 @@ impl RdsDecoder {
 /// Renders the RDS display to stderr using ANSI cursor control.
 pub struct RdsDisplay {
     drawn: bool,
+    synced: bool,
+    last_ps: String,
+    last_rt: String,
+    last_pi: u16,
+    last_groups: u64,
+    last_synced: bool,
 }
 
 impl RdsDisplay {
     pub fn new() -> Self {
-        RdsDisplay { drawn: false }
+        RdsDisplay {
+            drawn: false,
+            synced: false,
+            last_ps: String::new(),
+            last_rt: String::new(),
+            last_pi: 0,
+            last_groups: 0,
+            last_synced: false,
+        }
+    }
+
+    pub fn set_synced(&mut self, synced: bool) {
+        self.synced = synced;
     }
 
     pub fn render(&mut self, state: &RdsDisplayState) {
+        // Skip redraw if nothing changed
+        if self.drawn
+            && state.ps == self.last_ps
+            && state.rt == self.last_rt
+            && state.pi_code == self.last_pi
+            && state.groups_decoded == self.last_groups
+            && self.synced == self.last_synced
+        {
+            return;
+        }
+
+        self.last_ps = state.ps.clone();
+        self.last_rt = state.rt.clone();
+        self.last_pi = state.pi_code;
+        self.last_groups = state.groups_decoded;
+        self.last_synced = self.synced;
         let pi = if state.pi_code != 0 {
             format!("{:04X}", state.pi_code)
         } else {
@@ -500,8 +552,9 @@ impl RdsDisplay {
         self.drawn = true;
 
         let width = 56;
-        let top_line = format!("  {}    PI: {}  Sync: \u{2713}  Groups: {}",
-            state.ps, pi, state.groups_decoded);
+        let sync_icon = if self.synced { "✓" } else { "✗" };
+        let top_line = format!("  {}    PI: {}  Sync: {}  Groups: {}",
+            state.ps, pi, sync_icon, state.groups_decoded);
         let rt_display = if state.rt.len() > width - 4 {
             &state.rt[..width - 4]
         } else {
@@ -578,7 +631,7 @@ mod tests {
         }
 
         let bits = blocks_to_bits(&blocks);
-        let groups: Vec<RdsGroup> = bits.into_iter().rds_block_sync(&SyncConfig::default(), false).collect();
+        let groups: Vec<RdsGroup> = bits.into_iter().rds_block_sync(&SyncConfig::default(), false).filter_map(|e| match e { SyncEvent::Group(g) => Some(g), _ => None }).collect();
 
         assert!(!groups.is_empty(), "Should decode at least one group");
 
@@ -611,7 +664,7 @@ mod tests {
             bits.extend(blocks_to_bits(&blocks));
         }
 
-        let groups: Vec<RdsGroup> = bits.into_iter().rds_block_sync(&SyncConfig::default(), false).collect();
+        let groups: Vec<RdsGroup> = bits.into_iter().rds_block_sync(&SyncConfig::default(), false).filter_map(|e| match e { SyncEvent::Group(g) => Some(g), _ => None }).collect();
         assert!(groups.len() >= 2, "Should recover sync and decode groups after noise, got {}", groups.len());
     }
 }
