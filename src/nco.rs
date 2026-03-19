@@ -24,23 +24,20 @@ impl Nco {
     pub fn new(freq_hz: f32, sample_rate: f32, pll_bw_hz: f32, feedback_rate: f32) -> Self {
         let base_freq = 2.0 * std::f32::consts::PI * freq_hz / sample_rate;
 
-        // PI loop gains normalized to the FEEDBACK rate (not the NCO step rate),
-        // since that's how often the loop filter gets updated.
-        let bw_n = pll_bw_hz / feedback_rate;
-        let damping = 0.707_f32;
-        let denom = 1.0 + 2.0 * damping * bw_n + bw_n * bw_n;
-        let alpha = 4.0 * damping * bw_n / denom;
-        let beta = 4.0 * bw_n * bw_n / denom;
+        // liquid-dsp PLL formula: alpha = bw, beta = sqrt(bw)
+        // bw is normalized to the feedback rate
+        let bw_norm = pll_bw_hz / feedback_rate;
+        let alpha = bw_norm;
+        let beta = bw_norm.sqrt();
 
-        // Scale beta so the frequency correction is in NCO radians/sample
-        // (beta accumulates into pll_freq which is added per step at sample_rate)
-        let beta = beta / (sample_rate / feedback_rate);
+        // Scale to NCO step rate: frequency correction per step = dphi * alpha / (steps_per_feedback)
+        let steps_per_feedback = sample_rate / feedback_rate;
 
         Nco {
             phase: 0.0,
             base_freq,
             pll_freq: 0.0,
-            pll_alpha: alpha,
+            pll_alpha: alpha / steps_per_feedback,
             pll_beta: beta,
         }
     }
@@ -64,11 +61,11 @@ impl Nco {
     }
 
     /// Apply external phase error to the PLL.
-    /// The error should be in radians (e.g., from a PSK modem).
+    /// Matches liquid-dsp: adjust_frequency(dphi * alpha), adjust_phase(dphi * beta)
     #[inline]
-    pub fn step_pll(&mut self, phase_error: f32) {
-        self.pll_freq += self.pll_beta * phase_error;
-        self.phase += self.pll_alpha * phase_error;
+    pub fn step_pll(&mut self, dphi: f32) {
+        self.pll_freq += dphi * self.pll_alpha;
+        self.phase += dphi * self.pll_beta;
     }
 
     /// Current PLL frequency correction (radians/sample).

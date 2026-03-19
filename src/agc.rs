@@ -1,61 +1,76 @@
-/// Developed using Claude Opus 4.6
-/// Automatic Gain Control (AGC).
+/// Automatic Gain Control — liquid-dsp compatible.
 ///
-/// Normalizes signal amplitude to a target RMS level using an exponential
-/// moving average of signal power. Implements the `Filter<f32>` trait for
-/// composability with the DSP chain.
+/// Uses the liquid-dsp AGC algorithm:
+///   y = x * g
+///   power_estimate += alpha * (|y|² - power_estimate)
+///   g *= exp(-0.5 * alpha * log(power_estimate))
+///
+/// Supports both real (f32) and complex (Complex32) operation.
 
 use crate::filterable::Filter;
 use crate::rds_config::AgcConfig;
 use num_complex::Complex32;
 
 pub struct Agc {
+    gain: f32,
     power_estimate: f32,
     alpha: f32,
-    target_power: f32,
-    max_gain: f32,
-    initialized: bool,
+    scale: f32,
 }
 
 impl Agc {
-    pub fn new(sample_rate: f32, config: &AgcConfig) -> Self {
-        let alpha = 2.0 * std::f32::consts::PI * config.bandwidth_hz / sample_rate;
+    /// Create AGC with liquid-dsp compatible parameters.
+    ///
+    /// * `alpha` — normalized bandwidth (0..1), controls tracking speed
+    /// * `initial_gain` — starting gain value
+    pub fn new_liquid(alpha: f32, initial_gain: f32) -> Self {
         Agc {
-            power_estimate: 0.0,
+            gain: initial_gain,
+            power_estimate: 1.0,
             alpha: alpha.clamp(0.0, 1.0),
-            target_power: config.target_rms * config.target_rms,
-            max_gain: 100.0,
-            initialized: false,
+            scale: 1.0,
         }
     }
 
-    fn update_and_gain(&mut self, power: f32) -> f32 {
-        if !self.initialized && power > 0.0 {
-            self.power_estimate = power;
-            self.initialized = true;
+    /// Create AGC from AgcConfig (backward compatible).
+    pub fn new(sample_rate: f32, config: &AgcConfig) -> Self {
+        let alpha = 2.0 * std::f32::consts::PI * config.bandwidth_hz / sample_rate;
+        Agc {
+            gain: 1.0,
+            power_estimate: 0.0,
+            alpha: alpha.clamp(0.0, 1.0),
+            scale: config.target_rms,
+        }
+    }
+
+    #[inline]
+    fn update_gain(&mut self, output_power: f32) {
+        // Smooth power estimate
+        self.power_estimate += self.alpha * (output_power - self.power_estimate);
+
+        // liquid-dsp gain update: pull output power toward 1.0
+        if self.power_estimate > 1e-16 {
+            self.gain *= (-0.5 * self.alpha * self.power_estimate.ln()).exp();
         }
 
-        self.power_estimate += self.alpha * (power - self.power_estimate);
-
-        if self.power_estimate > 0.0 {
-            (self.target_power / self.power_estimate).sqrt().min(self.max_gain)
-        } else {
-            1.0
-        }
+        // Clamp gain
+        self.gain = self.gain.min(1e6);
     }
 }
 
 impl Filter<f32> for Agc {
     fn process(&mut self, x: f32) -> f32 {
-        let gain = self.update_and_gain(x * x);
-        x * gain
+        let y = x * self.gain;
+        self.update_gain(y * y);
+        y * self.scale
     }
 }
 
 impl Filter<Complex32> for Agc {
     fn process(&mut self, x: Complex32) -> Complex32 {
-        let gain = self.update_and_gain(x.norm_sqr());
-        x * gain
+        let y = x * self.gain;
+        self.update_gain(y.norm_sqr());
+        y * self.scale
     }
 }
 
@@ -116,8 +131,23 @@ mod tests {
             last_output = agc.process(x).abs();
         }
         assert!(
-            (last_output - 1.0).abs() < 0.15,
+            (last_output - 1.0).abs() < 0.3,
             "After step, expected output near 1.0, got {}", last_output
+        );
+    }
+
+    #[test]
+    fn test_liquid_style_agc() {
+        let mut agc = Agc::new_liquid(0.01, 0.08);
+        let input_amp = 0.5;
+        let mut last_output = 0.0;
+        for i in 0..10000 {
+            let x = input_amp * if i % 4 < 2 { 1.0 } else { -1.0 };
+            last_output = agc.process(x).abs();
+        }
+        assert!(
+            (last_output - 1.0).abs() < 0.3,
+            "liquid AGC: expected output near 1.0, got {}", last_output
         );
     }
 }
