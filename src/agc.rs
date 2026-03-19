@@ -7,6 +7,7 @@
 
 use crate::filterable::Filter;
 use crate::rds_config::AgcConfig;
+use num_complex::Complex32;
 
 pub struct Agc {
     power_estimate: f32,
@@ -27,24 +28,33 @@ impl Agc {
             initialized: false,
         }
     }
+
+    fn update_and_gain(&mut self, power: f32) -> f32 {
+        if !self.initialized && power > 0.0 {
+            self.power_estimate = power;
+            self.initialized = true;
+        }
+
+        self.power_estimate += self.alpha * (power - self.power_estimate);
+
+        if self.power_estimate > 0.0 {
+            (self.target_power / self.power_estimate).sqrt().min(self.max_gain)
+        } else {
+            1.0
+        }
+    }
 }
 
 impl Filter<f32> for Agc {
     fn process(&mut self, x: f32) -> f32 {
-        // Seed the power estimate from the first nonzero sample
-        if !self.initialized && x != 0.0 {
-            self.power_estimate = x * x;
-            self.initialized = true;
-        }
+        let gain = self.update_and_gain(x * x);
+        x * gain
+    }
+}
 
-        self.power_estimate += self.alpha * (x * x - self.power_estimate);
-
-        let gain = if self.power_estimate > 0.0 {
-            (self.target_power / self.power_estimate).sqrt().min(self.max_gain)
-        } else {
-            1.0 // pass through until we have signal
-        };
-
+impl Filter<Complex32> for Agc {
+    fn process(&mut self, x: Complex32) -> Complex32 {
+        let gain = self.update_and_gain(x.norm_sqr());
         x * gain
     }
 }

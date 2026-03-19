@@ -1,8 +1,7 @@
 /// Costas loop for BPSK phase synchronization.
 ///
 /// Accepts Complex32 input, removes residual frequency offset and phase
-/// error, and outputs the phase-corrected real component (f32).
-/// This collapses the complex BPSK signal to a real ±amplitude stream.
+/// error, and outputs the full phase-corrected complex sample.
 
 use num_complex::Complex32;
 use crate::rds_config::CostasConfig;
@@ -12,12 +11,14 @@ pub struct CostasLoop {
     freq: f32,
     alpha: f32,
     beta: f32,
+    // Lock detection: exponential average of |error|
+    avg_error: f32,
+    lock_alpha: f32,
+    sample_count: u64,
 }
 
 impl CostasLoop {
     pub fn new(config: &CostasConfig) -> Self {
-        // PI loop filter gains from 2nd-order PLL control theory.
-        // Same formula as Gardner — see gardner_clock_recovery.rs for details.
         let damping = 0.707_f32;
         let denom = 1.0 + 2.0 * damping * config.loop_bw + config.loop_bw * config.loop_bw;
         let alpha = 4.0 * damping * config.loop_bw / denom;
@@ -28,23 +29,28 @@ impl CostasLoop {
             freq: 0.0,
             alpha,
             beta,
+            avg_error: 1.0,
+            lock_alpha: 0.01,  // smoothing for lock indicator
+            sample_count: 0,
         }
     }
 
-    /// Process one complex sample. Returns the phase-corrected real component.
-    pub fn process(&mut self, input: Complex32) -> f32 {
-        // Rotate input by negative estimated phase
+    /// Process one complex sample. Returns the phase-corrected complex output.
+    pub fn process(&mut self, input: Complex32) -> Complex32 {
         let correction = Complex32::new(self.phase.cos(), -self.phase.sin());
         let rotated = input * correction;
 
-        // BPSK Costas error: Re × Im
+        // BPSK Costas error: Re × Im (zero when aligned to real axis)
         let error = rotated.re * rotated.im;
+
+        // Update lock indicator
+        self.avg_error += self.lock_alpha * (error.abs() - self.avg_error);
+        self.sample_count += 1;
 
         // Update loop
         self.freq += self.beta * error;
         self.phase += self.freq + self.alpha * error;
 
-        // Keep phase in [0, 2π)
         while self.phase >= 2.0 * std::f32::consts::PI {
             self.phase -= 2.0 * std::f32::consts::PI;
         }
@@ -52,22 +58,46 @@ impl CostasLoop {
             self.phase += 2.0 * std::f32::consts::PI;
         }
 
-        rotated.re
+        rotated
     }
+
+    /// Average absolute error — small when locked.
+    pub fn avg_error(&self) -> f32 { self.avg_error }
+
+    /// Current frequency estimate (radians/sample).
+    pub fn freq(&self) -> f32 { self.freq }
+
+    /// Current phase estimate (radians).
+    pub fn phase(&self) -> f32 { self.phase }
+
+    /// Samples processed so far.
+    pub fn sample_count(&self) -> u64 { self.sample_count }
 }
 
-/// Iterator adapter: consumes Complex32, yields f32.
+/// Iterator adapter: consumes Complex32, yields Complex32.
+/// Logs lock diagnostics periodically to stderr.
 pub struct CostasIter<I: Iterator<Item = Complex32>> {
     iter: I,
     costas: CostasLoop,
+    log_interval: u64,
 }
 
 impl<I: Iterator<Item = Complex32>> Iterator for CostasIter<I> {
-    type Item = f32;
+    type Item = Complex32;
 
-    fn next(&mut self) -> Option<f32> {
+    fn next(&mut self) -> Option<Complex32> {
         let sample = self.iter.next()?;
-        Some(self.costas.process(sample))
+        let out = self.costas.process(sample);
+
+        if self.costas.sample_count % self.log_interval == 0 && self.costas.sample_count > 0 {
+            eprintln!("COSTAS n={} avg_err={:.6} freq={:.6} rad/samp phase={:.3} rad",
+                self.costas.sample_count,
+                self.costas.avg_error(),
+                self.costas.freq(),
+                self.costas.phase());
+        }
+
+        Some(out)
     }
 }
 
@@ -82,6 +112,7 @@ impl<I: Iterator<Item = Complex32>> CostasDemodulable for I {
         CostasIter {
             iter: self,
             costas: CostasLoop::new(config),
+            log_interval: 500,  // every 500 symbols ≈ 0.42s
         }
     }
 }
@@ -89,7 +120,6 @@ impl<I: Iterator<Item = Complex32>> CostasDemodulable for I {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::f32::consts::PI;
 
     #[test]
     fn test_removes_phase_offset() {
@@ -101,7 +131,7 @@ mod tests {
         for i in 0..500 {
             let bit = if (i * 7 + 3) % 11 > 5 { 1.0 } else { -1.0 };
             let sample = Complex32::new(bit, 0.0) * rot;
-            output.push(costas.process(sample));
+            output.push(costas.process(sample).re);
         }
 
         let settled = &output[200..];
@@ -120,7 +150,7 @@ mod tests {
             let bit = if (i * 7 + 3) % 11 > 5 { 1.0 } else { -1.0 };
             let phase = freq_offset * i as f32;
             let sample = Complex32::new(bit, 0.0) * Complex32::new(phase.cos(), phase.sin());
-            output.push(costas.process(sample));
+            output.push(costas.process(sample).re);
         }
 
         let settled = &output[500..];
@@ -138,7 +168,7 @@ mod tests {
             .collect();
 
         let output: Vec<f32> = symbols.iter()
-            .map(|&s| costas.process(Complex32::new(s, 0.0)))
+            .map(|&s| costas.process(Complex32::new(s, 0.0)).re)
             .collect();
 
         let settled_in = &symbols[100..];
@@ -149,5 +179,23 @@ mod tests {
 
         let accuracy = matches as f32 / settled_in.len() as f32;
         assert!(accuracy > 0.95, "Passthrough: {:.0}% match", accuracy * 100.0);
+    }
+
+    #[test]
+    fn test_imaginary_near_zero_after_lock() {
+        let mut costas = CostasLoop::new(&CostasConfig::default());
+        let offset = 45.0_f32.to_radians();
+        let rot = Complex32::new(offset.cos(), offset.sin());
+
+        let mut output = Vec::new();
+        for i in 0..500 {
+            let bit = if (i * 7 + 3) % 11 > 5 { 1.0 } else { -1.0 };
+            let sample = Complex32::new(bit, 0.0) * rot;
+            output.push(costas.process(sample));
+        }
+
+        let settled = &output[200..];
+        let avg_im = settled.iter().map(|s| s.im.abs()).sum::<f32>() / settled.len() as f32;
+        assert!(avg_im < 0.15, "Imaginary should be near zero after lock, got {:.3}", avg_im);
     }
 }

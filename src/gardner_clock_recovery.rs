@@ -3,39 +3,135 @@
 /// Recovers the symbol clock from an oversampled signal by finding the
 /// optimal sampling instants. Consumes ~N input samples per output,
 /// where N = sample_rate / symbol_rate.
+///
+/// Supports both real (f32) and complex (Complex32) operation.
+/// The complex TED sums I and Q channel error contributions, making it
+/// robust to carrier phase/frequency offsets.
 
+use num_complex::Complex32;
 use crate::rds_config::GardnerConfig;
+
+// --- Complex Gardner ---
+
+pub struct ComplexGardnerClockRecovery<I: Iterator<Item = Complex32>> {
+    iter: I,
+    nco_phase: f32,
+    base_increment: f32,
+    buf: [Complex32; 2],
+    prev_strobe: Complex32,
+    mid_sample: Complex32,
+    integrator: f32,
+    correction: f32,
+    kp: f32,
+    ki: f32,
+}
+
+impl<I: Iterator<Item = Complex32>> ComplexGardnerClockRecovery<I> {
+    pub fn new(iter: I, symbol_rate: f32, sample_rate: f32, config: &GardnerConfig) -> Self {
+        let bw_n = config.loop_bw;
+        let zeta = 0.707;
+        let denom = 1.0 + 2.0 * zeta * bw_n + bw_n * bw_n;
+        let kp = 4.0 * zeta * bw_n / denom;
+        let ki = 4.0 * bw_n * bw_n / denom;
+
+        ComplexGardnerClockRecovery {
+            iter,
+            nco_phase: 0.0,
+            base_increment: symbol_rate / sample_rate,
+            buf: [Complex32::new(0.0, 0.0); 2],
+            prev_strobe: Complex32::new(0.0, 0.0),
+            mid_sample: Complex32::new(0.0, 0.0),
+            integrator: 0.0,
+            correction: 0.0,
+            kp,
+            ki,
+        }
+    }
+
+    fn process(&mut self, input: Complex32) -> Option<Complex32> {
+        self.buf[0] = self.buf[1];
+        self.buf[1] = input;
+
+        let prev_phase = self.nco_phase;
+        let step = self.base_increment + self.correction;
+        self.nco_phase += step;
+
+        // Midpoint crossing (phase crosses 0.5)
+        if prev_phase < 0.5 && self.nco_phase >= 0.5 {
+            let mu = (0.5 - prev_phase) / step;
+            self.mid_sample = self.buf[0] * (1.0 - mu) + self.buf[1] * mu;
+        }
+
+        // Symbol strobe (phase crosses 1.0)
+        if self.nco_phase >= 1.0 {
+            self.nco_phase -= 1.0;
+            let mu = (1.0 - prev_phase) / step;
+            let curr_strobe = self.buf[0] * (1.0 - mu) + self.buf[1] * mu;
+
+            // Complex Gardner TED: sum of I and Q channel errors
+            let diff = self.prev_strobe - curr_strobe;
+            let error = self.mid_sample.re * diff.re + self.mid_sample.im * diff.im;
+
+            // PI loop filter
+            self.integrator += self.ki * error;
+            let max_adj = self.base_increment * 0.5;
+            self.integrator = self.integrator.clamp(-max_adj, max_adj);
+            self.correction = self.kp * error + self.integrator;
+
+            self.prev_strobe = curr_strobe;
+
+            return Some(curr_strobe);
+        }
+
+        None
+    }
+}
+
+impl<I: Iterator<Item = Complex32>> Iterator for ComplexGardnerClockRecovery<I> {
+    type Item = Complex32;
+
+    fn next(&mut self) -> Option<Complex32> {
+        loop {
+            let input = self.iter.next()?;
+            if let Some(symbol) = self.process(input) {
+                return Some(symbol);
+            }
+        }
+    }
+}
+
+pub trait ComplexClockRecoverable {
+    fn complex_clock_recover(self, symbol_rate: f32, sample_rate: f32, config: &GardnerConfig)
+        -> ComplexGardnerClockRecovery<Self>
+    where
+        Self: Sized + Iterator<Item = Complex32>;
+}
+
+impl<I: Iterator<Item = Complex32>> ComplexClockRecoverable for I {
+    fn complex_clock_recover(self, symbol_rate: f32, sample_rate: f32, config: &GardnerConfig)
+        -> ComplexGardnerClockRecovery<Self>
+    {
+        ComplexGardnerClockRecovery::new(self, symbol_rate, sample_rate, config)
+    }
+}
+
+// --- Real Gardner (original) ---
 
 pub struct GardnerClockRecovery<I: Iterator<Item = f32>> {
     iter: I,
-
-    // NCO state
     nco_phase: f32,
-    base_increment: f32, // symbol_rate / sample_rate
-
-    // Interpolation buffer: buf[0] = previous, buf[1] = current
+    base_increment: f32,
     buf: [f32; 2],
-
-    // TED state
     prev_strobe: f32,
     mid_sample: f32,
-
-    // Loop filter (PI controller)
     integrator: f32,
-    correction: f32, // kp * error + integrator, applied every NCO step
+    correction: f32,
     kp: f32,
     ki: f32,
 }
 
 impl<I: Iterator<Item = f32>> GardnerClockRecovery<I> {
     pub fn new(iter: I, symbol_rate: f32, sample_rate: f32, config: &GardnerConfig) -> Self {
-        // PI loop filter gains derived from 2nd-order PLL control theory.
-        // Maps desired loop bandwidth and damping ratio to discrete-time
-        // proportional (Kp) and integral (Ki) gains:
-        //   Kp = 4 * zeta * bw_n / (1 + 2 * zeta * bw_n + bw_n^2)
-        //   Ki = 4 * bw_n^2 / (1 + 2 * zeta * bw_n + bw_n^2)
-        // This is the same formula used in GNU Radio's Symbol Sync block
-        // (see symbol_sync_cc_impl.cc in gr-digital).
         let bw_n = config.loop_bw;
         let zeta = 0.707;
         let denom = 1.0 + 2.0 * zeta * bw_n + bw_n * bw_n;
@@ -64,29 +160,24 @@ impl<I: Iterator<Item = f32>> GardnerClockRecovery<I> {
         let step = self.base_increment + self.correction;
         self.nco_phase += step;
 
-        // Midpoint crossing (phase crosses 0.5)
         if prev_phase < 0.5 && self.nco_phase >= 0.5 {
             let mu = (0.5 - prev_phase) / step;
             self.mid_sample = self.buf[0] * (1.0 - mu) + self.buf[1] * mu;
         }
 
-        // Chip strobe (phase crosses 1.0)
         if self.nco_phase >= 1.0 {
             self.nco_phase -= 1.0;
             let mu = (1.0 - prev_phase) / step;
             let curr_strobe = self.buf[0] * (1.0 - mu) + self.buf[1] * mu;
 
-            // Gardner TED: error = midpoint × (previous_strobe − current_strobe)
             let error = self.mid_sample * (self.prev_strobe - curr_strobe);
 
-            // PI loop filter
             self.integrator += self.ki * error;
             let max_adj = self.base_increment * 0.5;
             self.integrator = self.integrator.clamp(-max_adj, max_adj);
             self.correction = self.kp * error + self.integrator;
 
             self.prev_strobe = curr_strobe;
-
             return Some(curr_strobe);
         }
 

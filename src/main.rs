@@ -21,6 +21,10 @@ mod rds_config;
 mod rds_taps;
 mod agc;
 mod costas;
+mod polyphase;
+mod nco;
+mod biphase;
+mod psk_modem;
 
 use std::sync::atomic;
 use std::sync::Arc;
@@ -299,7 +303,7 @@ fn signal_pipeline(
     fs: f32,
     inbuf: buffer::RecvBuf<Vec<Complex32>>,
     mut audio_out: buffer::SendBuf<Vec<(f32, f32)>>,
-    mut rds_out: buffer::SendBuf<Vec<Complex32>>,
+    mut rds_out: buffer::SendBuf<Vec<f32>>,
     settings: SignalPipelineSettings,
     obs_settings: AudioPipelineObservationSettings,
     mpx_path: Option<String>,
@@ -364,7 +368,7 @@ fn signal_pipeline(
     let mut wfm = demoded.wfm_audio(_fs);
 
     let mut audio_batch: Option<buffer::BufToken<Vec<(f32, f32)>>> = None;
-    let mut rds_batch: Option<buffer::BufToken<Vec<Complex32>>> = None;
+    let mut rds_batch: Option<buffer::BufToken<Vec<f32>>> = None;
 
     while !done.load(atomic::Ordering::SeqCst) {
         // Ensure we have output buffers
@@ -375,7 +379,7 @@ fn signal_pipeline(
             };
         }
         if rds_batch.is_none() {
-            rds_batch = rds_out.try_get().map(|mut tok| { tok.clear(); tok });
+            rds_batch = rds_out.get().map(|mut tok| { tok.clear(); tok });
         }
 
         let sample = match wfm.next() {
@@ -383,7 +387,7 @@ fn signal_pipeline(
             None => break,
         };
 
-        // Tee: audio gets (left, right), RDS gets baseband
+        // Tee: audio gets (left, right), RDS gets raw MPX
         if let Some(ref mut buf) = audio_batch {
             buf.push((sample.left, sample.right));
             if buf.len() >= 4096 {
@@ -391,7 +395,7 @@ fn signal_pipeline(
             }
         }
         if let Some(ref mut buf) = rds_batch {
-            buf.push(sample.rds);
+            buf.push(sample.mpx);
             if buf.len() >= 4096 {
                 rds_out.commit(rds_batch.take().unwrap());
             }
@@ -485,46 +489,362 @@ const RDS_FS: f32 = 19000.0;          // final RDS sample rate
 ///   - Comparative analysis: https://www.site2241.net/january2024.htm
 ///   - Andy Walls, "Symbol Clock Recovery", GRCon 2017 (AGC requirements for TEDs)
 ///   - RDS standard: IEC 62106
-fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<Complex32>>, wfm_fs: f32, config: &rds_config::RdsConfig, debug: bool, metrics: bool) {
+/// Redsea-style RDS pipeline.
+///
+/// Input: Complex32 baseband at wfm_fs (240 kHz) from PLL-driven 57 kHz mixer.
+///
+/// Architecture (mimicking windytan/redsea):
+///   FIR LPF 2400 Hz → ÷ to ~3 samp/chip → AGC → SymSync (complex clock recovery)
+///   → PSK2 modem → phase error → NCO PLL feedback → biphase decode → delta decode
+///
+/// Key differences from our old pipeline:
+///   - Tight 2400 Hz LPF (was 4000 Hz)
+///   - Chip-rate clock recovery at 2375 Hz (was bit-rate at 1187.5 Hz)
+///   - Decision-directed carrier tracking via modem phase error (was Costas loop)
+///   - Explicit biphase Manchester decode (was Manchester-RRC matched filter)
+///
+/// TODO: For true Redsea replication, the pipeline should receive real MPX (f32)
+/// and do its own 57 kHz NCO mixing with PLL feedback. Currently we receive
+/// post-PLL complex baseband, so the phase error feedback path is not yet closed.
+fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wfm_fs: f32, config: &rds_config::RdsConfig, debug: bool, metrics: bool) {
+    let chip_rate = 2375.0_f32;
+    let bit_rate = 1187.5_f32;
+
+    // 57 kHz PLL for carrier tracking (same as StereoDownmixer, tracks by frequency detection)
+    let pll_loop_filt = biquad::Biquad::lowpass(wfm_fs, 1000.0, 0.707);
+    let mut pll = pll::RealPll::new(57e3, wfm_fs, 0.05, pll_loop_filt, 3.0);
+
+    // Polyphase resample 240 kHz → 171 kHz (L=57, M=80) to match Redsea's rate
+    let resamp_fs = 171000.0_f32;
+    let resamp_l = 57_usize;
+    let resamp_m = 80_usize;
+    let proto_fs = resamp_l as f64 * wfm_fs as f64;  // 13.68 MHz
+    let proto_cutoff = resamp_fs as f64 / 2.0;  // 85.5 kHz (Nyquist of output)
+    let mut resamp_taps = rds_taps::generate_lowpass_taps(proto_fs, proto_cutoff, 570, &rds_taps::WindowType::Blackman);
+    for t in resamp_taps.iter_mut() { *t *= resamp_l as f32; }  // scale by L
+    let mut resampler = polyphase::PolyphaseResampler::<Complex32>::new(resamp_taps, resamp_l, resamp_m);
+
+    // Anti-alias FIR for ÷24 decimation: 171 kHz → 7125 Hz
+    // Cutoff at ~3000 Hz (above chip Nyquist 2375/2, below 7125/2 = 3562 Hz)
+    let aa_taps = rds_taps::generate_lowpass_taps(resamp_fs as f64, 3000.0, 127, &rds_taps::WindowType::Blackman);
+    let mut aa_lpf = fir::Fir::<Complex32>::new(aa_taps);
+    let decimate_ratio = 24_usize;
+    let decimated_fs = resamp_fs / decimate_ratio as f32;  // 7125 Hz exactly
+
+    // AGC at decimated rate (Redsea: normalized BW = 500/171000 ≈ 0.003, effective ~21 Hz at 7125)
+    let mut agc = agc::Agc::new(decimated_fs, &rds_config::AgcConfig {
+        bandwidth_hz: 21.0,
+        target_rms: 1.0,
+    });
+
+    // RRC matched filter (Redsea: β=0.8, 3 samp/chip, delay 3)
+    let samp_per_chip = decimated_fs / chip_rate;  // exactly 3.0
+    let rrc_taps = rds_taps::generate_rrc_taps(decimated_fs as f64, chip_rate as f64, 0.8, 3);
+    let mut rrc_filter = fir::Fir::<Complex32>::new(rrc_taps.clone());
+    eprintln!("Redsea-style: NCO 57kHz → resample {:.0}→{:.0} (L={},M={}) → ÷{} → {} Hz ({:.1} samp/chip) → RRC β=0.8 ({}t)",
+        wfm_fs, resamp_fs, resamp_l, resamp_m, decimate_ratio, decimated_fs, samp_per_chip, rrc_taps.len());
+
+    // Gardner state
+    let bw_n = config.gardner.loop_bw;
+    let zeta = 0.707_f32;
+    let denom = 1.0 + 2.0 * zeta * bw_n + bw_n * bw_n;
+    let gardner_kp = 4.0 * zeta * bw_n / denom;
+    let gardner_ki = 4.0 * bw_n * bw_n / denom;
+    let base_increment = chip_rate / decimated_fs;  // exactly 1/3
+
+    let mut gardner_phase: f32 = 0.0;
+    let mut gardner_buf = [Complex32::new(0.0, 0.0); 2];
+    let mut gardner_prev_strobe = Complex32::new(0.0, 0.0);
+    let mut gardner_mid = Complex32::new(0.0, 0.0);
+    let mut gardner_integrator: f32 = 0.0;
+    let mut gardner_correction: f32 = 0.0;
+
+    // PSK modem + biphase + delta decoders
+    let modem = psk_modem::BpskModem::new();
+    let mut biphase = biphase::BiphaseDecoder::new();
+    let mut delta = biphase::DeltaDecoder::new();
+    let mut chip_count: u64 = 0;
+    let mut bit_count: u64 = 0;
+
+    // Diagnostic time series (collected at chip rate for plotting)
+    let mut diag_phase_err: Vec<f32> = Vec::new();
+    let mut diag_pll_freq: Vec<f32> = Vec::new();
+    let mut diag_strobe_re: Vec<f32> = Vec::new();
+    let mut diag_strobe_im: Vec<f32> = Vec::new();
+
+    // Block sync (with empty iterator — we'll use push_bit directly)
+    let mut block_sync = rds_block_sync::RdsBlockSync::new(
+        std::iter::empty::<u8>(), &config.sync, debug);
+    let mut decoder = rds_block_sync::RdsDecoder::new();
+    let mut display = rds_block_sync::RdsDisplay::new();
+    let start_time = std::time::Instant::now();
+
+    let mut sample_count: u64 = 0;
+    let mut decimate_count: usize = 0;
+    let mut spy_decimated: Vec<Complex32> = Vec::new();
+    let spy_len = 4096;
+
+    use crate::filterable::Filter;
+    let mut rds_iter = buffer::RecvBufIter::new(rds_rx);
+
+    // PLL mix + polyphase resample → AA LPF → ÷24 → processing
+    loop {
+        if done.load(atomic::Ordering::Relaxed) { break; }
+
+        // 1. PLL mix + polyphase resample: pulls input samples as needed
+        let resampled = match resampler.next_from(&mut rds_iter.by_ref().map(|s| {
+            let pll_out = pll.process_complex(s);
+            sample_count += 1;
+            pll_out.out * s  // mix to complex baseband
+        })) {
+            Some(s) => s,
+            None => break,
+        };
+
+        // 2. Anti-alias LPF at 3000 Hz (at 171 kHz)
+        let filtered = aa_lpf.process(resampled);
+
+        // 3. Decimate ÷24 → 7125 Hz
+        decimate_count += 1;
+        if decimate_count < decimate_ratio {
+            continue;
+        }
+        decimate_count = 0;
+
+        // --- Running at 7125 Hz (exactly 3 samp/chip) ---
+
+        // 4. AGC
+        let agc_out = agc.process(filtered);
+
+        // 4b. RRC matched filter
+        let matched_out = rrc_filter.process(agc_out);
+
+        // Spy on decimated+AGC+RRC signal
+        if spy_decimated.len() < spy_len {
+            spy_decimated.push(matched_out);
+            if spy_decimated.len() == spy_len {
+                save_psd_png(&spy_decimated, decimated_fs, "12 After decimate+AGC+RRC (7125 Hz)", "12_decimated_agc_rrc.png");
+            }
+        }
+
+        // 5. Gardner clock recovery (manual inline)
+        gardner_buf[0] = gardner_buf[1];
+        gardner_buf[1] = matched_out;
+
+        let prev_phase = gardner_phase;
+        let step = (base_increment + gardner_correction).max(base_increment * 0.5);
+        gardner_phase += step;
+
+        // Midpoint crossing
+        if prev_phase < 0.5 && gardner_phase >= 0.5 {
+            let mu = (0.5 - prev_phase) / step;
+            gardner_mid = gardner_buf[0] * (1.0 - mu) + gardner_buf[1] * mu;
+        }
+
+        // Symbol strobe
+        if gardner_phase >= 1.0 {
+            gardner_phase -= 1.0;
+            let mu = (1.0 - prev_phase) / step;
+            let curr_strobe = gardner_buf[0] * (1.0 - mu) + gardner_buf[1] * mu;
+
+            // Complex Gardner TED
+            let diff = gardner_prev_strobe - curr_strobe;
+            let error = gardner_mid.re * diff.re + gardner_mid.im * diff.im;
+
+            gardner_integrator += gardner_ki * error;
+            let max_adj = base_increment * 0.5;
+            gardner_integrator = gardner_integrator.clamp(-max_adj, max_adj);
+            gardner_correction = gardner_kp * error + gardner_integrator;
+            gardner_prev_strobe = curr_strobe;
+
+            // --- Running at chip rate (2375 Hz) ---
+
+            // 6. PSK2 modem: hard decision + phase error
+            let demod = modem.demodulate(curr_strobe);
+            chip_count += 1;
+
+            // Collect diagnostics
+            diag_phase_err.push(demod.phase_error);
+            diag_pll_freq.push(0.0);  // PLL freq not tracked in frequency-detection mode
+            diag_strobe_re.push(curr_strobe.re);
+            diag_strobe_im.push(curr_strobe.im);
+
+            // 7. (PLL feedback disabled — using frequency-detection PLL instead)
+
+            // 8. Biphase (Manchester) decode: 2375 → 1187.5 Hz
+            let biphase_result = biphase.push(curr_strobe);
+            if biphase_result.has_value {
+                // 9. Delta (differential) decode
+                let data_bit = delta.decode(biphase_result.bit);
+                bit_count += 1;
+
+                // 10. Block sync + group decode
+                if let Some(event) = block_sync.push_bit(data_bit as u8) {
+                    match event {
+                        rds_block_sync::SyncEvent::Group(group) => {
+                            let state = decoder.process(&group);
+                            let elapsed = start_time.elapsed().as_secs_f64();
+
+                            if metrics {
+                                let pi_str = if group.pi_code != 0 {
+                                    format!("{:04X}", group.pi_code)
+                                } else { "0000".to_string() };
+                                eprintln!("RDSMETRIC {{\"t\":{:.3},\"bler\":{:.4},\"groups\":{},\"pi\":\"{}\"}}",
+                                    elapsed, group.rolling_bler, state.groups_decoded, pi_str);
+                            }
+                            if debug {
+                                let version_str = if group.version { "B" } else { "A" };
+                                eprintln!("RDS Group {}{}: PI=0x{:04X}  BLER={:.1}%",
+                                    group.group_type, version_str, group.pi_code,
+                                    group.rolling_bler * 100.0);
+                            } else if !metrics {
+                                display.set_synced(true);
+                                display.render(&state);
+                            }
+                        }
+                        rds_block_sync::SyncEvent::Locked => {
+                            if !metrics && !debug { display.set_synced(true); display.render(&decoder.display_state()); }
+                        }
+                        rds_block_sync::SyncEvent::LostSync => {
+                            if !metrics && !debug { display.set_synced(false); display.render(&decoder.display_state()); }
+                        }
+                        rds_block_sync::SyncEvent::Searching => {
+                            if !metrics && !debug { display.set_synced(false); display.render(&decoder.display_state()); }
+                        }
+                    }
+                }
+            }
+        }
+
+        sample_count += 1;
+    }
+
+    // Plot PLL diagnostics
+    if !diag_phase_err.is_empty() {
+        use plotly::{Plot, Scatter, Layout};
+        use plotly::layout::Axis;
+        let time: Vec<f32> = (0..diag_phase_err.len()).map(|i| i as f32 / chip_rate).collect();
+
+        // Phase error time series
+        let mut plot = Plot::new();
+        plot.add_trace(Scatter::new(time.clone(), diag_phase_err.clone()).name("Phase error (rad)"));
+        plot.set_layout(Layout::new()
+            .title("07 PLL Phase Error vs Time")
+            .x_axis(Axis::new().title("Time (s)"))
+            .y_axis(Axis::new().title("Phase error (rad)").range(vec![-3.2, 3.2])));
+        plot.write_image("07_pll_phase_error.png", plotly::ImageFormat::PNG, 1400, 400, 1.0);
+        eprintln!("Saved: 07_pll_phase_error.png");
+
+        // PLL frequency correction
+        let mut plot = Plot::new();
+        plot.add_trace(Scatter::new(time.clone(), diag_pll_freq.clone()).name("PLL freq (rad/samp)"));
+        plot.set_layout(Layout::new()
+            .title("08 PLL Frequency Correction vs Time")
+            .x_axis(Axis::new().title("Time (s)")));
+        plot.write_image("08_pll_freq.png", plotly::ImageFormat::PNG, 1400, 400, 1.0);
+        eprintln!("Saved: 08_pll_freq.png");
+
+        // Constellation (I vs Q of strobe samples)
+        let mut plot = Plot::new();
+        use plotly::common::Mode;
+        plot.add_trace(Scatter::new(diag_strobe_re.clone(), diag_strobe_im.clone())
+            .mode(Mode::Markers).name("Strobe IQ"));
+        plot.set_layout(Layout::new().title("09 Constellation (all chip strobes)"));
+        plot.write_image("09_constellation.png", plotly::ImageFormat::PNG, 600, 600, 1.0);
+        eprintln!("Saved: 09_constellation.png");
+    }
+
+    if metrics {
+        let elapsed = start_time.elapsed().as_secs_f64();
+        let state = decoder.display_state();
+        eprintln!("RDSSUMMARY {{\"groups\":{},\"duration\":{:.1},\"final_bler\":{:.4}}}",
+            state.groups_decoded, elapsed, 0.0);
+    }
+}
+
+fn rds_pipeline_old(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wfm_fs: f32, config: &rds_config::RdsConfig, debug: bool, metrics: bool) {
     let bit_rate = 1187.5_f32;
     let rds_iter = buffer::RecvBufIter::new(rds_rx);
 
-    // Anti-alias filter before decimation (complex biquads)
-    let aa_filters: Vec<biquad::Biquad<Complex32>> = (0..config.anti_alias_order)
-        .map(|_| biquad::Biquad::lowpass(wfm_fs, config.anti_alias_cutoff_hz, 0.707))
-        .collect();
+    // NCO to convert f32 MPX → Complex32 baseband (replaces the PLL from StereoDownmixer)
+    let mut nco_old = nco::Nco::new(57000.0, wfm_fs, 0.03, 2375.0);
+    let rds_iter = rds_iter.map(move |s| {
+        let out = nco_old.mix_down(s);
+        nco_old.step();
+        out
+    });
 
-    // Rational resample: ÷12 → 20 kHz → ↑19 ↓20 → 19 kHz
-    let intermediate_fs = wfm_fs / RDS_FIRST_DECIMATE as f32;
-    let resamp_aa1: biquad::Biquad<Complex32> = biquad::Biquad::lowpass(intermediate_fs * RDS_UPSAMPLE as f32, config.anti_alias_cutoff_hz, 0.707);
-    let resamp_aa2 = resamp_aa1.clone();
-
-    // Manchester-shaped RRC matched filter (runtime generated)
+    // Two-stage polyphase resampler: 240 kHz → 20 kHz → 19 kHz
     let window = rds_taps::WindowType::from_str(&config.matched_filter_window)
         .unwrap_or(rds_taps::WindowType::Blackman);
-    let taps = rds_taps::generate_manchester_rrc_taps(RDS_FS as f64, config.matched_filter_spans, &window);
-    let matched_filter: fir::Fir<Complex32> = fir::Fir::new(taps);
 
-    // Build the iterator chain
-    let mut chain: Box<dyn Iterator<Item = Complex32>> = Box::new(rds_iter);
-    for aa in aa_filters {
-        chain = Box::new(chain.dsp_filter(aa));
-    }
+    // Stage 1: Decimating lowpass 240 kHz → 20 kHz (prototype at L×fs = 1×240k = 240 kHz)
+    let lpf_taps = rds_taps::generate_lowpass_taps(wfm_fs as f64, 4000.0, 201, &rds_taps::WindowType::Blackman);
 
-    let mut groups = chain
-        .downsample(RDS_FIRST_DECIMATE)
-        .upsample(RDS_UPSAMPLE)
-        .dsp_filter(resamp_aa1).dsp_filter(resamp_aa2)
-        .downsample(RDS_SECOND_DECIMATE)
+    // Stage 2: Polyphase rational resample 20 kHz → 19 kHz with AA (prototype at L×fs = 19×20k = 380 kHz)
+    let intermediate_fs = wfm_fs / RDS_FIRST_DECIMATE as f32; // 20 kHz
+    let proto_fs = (RDS_UPSAMPLE as f64) * (intermediate_fs as f64); // 380 kHz
+    let mut resamp_taps = rds_taps::generate_lowpass_taps(proto_fs, 9500.0, 2881, &rds_taps::WindowType::Blackman);
+    for t in resamp_taps.iter_mut() { *t *= RDS_UPSAMPLE as f32; }
+
+    // Matched filter at output rate (19 kHz)
+    let matched_taps = rds_taps::generate_manchester_rrc_taps(RDS_FS as f64, config.matched_filter_spans, &window);
+    let matched_filter: fir::Fir<Complex32> = fir::Fir::new(matched_taps);
+
+    let arm2_len = (resamp_taps.len() + RDS_UPSAMPLE - 1) / RDS_UPSAMPLE;
+    eprintln!("Pipeline: polyphase ÷{} ({}t) → polyphase L={}/M={} ({}t/arm) → matched ({}t) → AGC → Gardner → Costas",
+        RDS_FIRST_DECIMATE, lpf_taps.len(),
+        RDS_UPSAMPLE, RDS_SECOND_DECIMATE, arm2_len,
+        144);
+
+    use polyphase::PolyphaseResampleable;
+    use gardner_clock_recovery::ComplexClockRecoverable;
+    let wfm_fs_copy = wfm_fs;
+    let mut groups = rds_iter
+        .spy(4096, move |samples| {
+            save_psd_png(&samples, wfm_fs_copy, "01 Input from StereoDownmixer (240 kHz)", "01_rds_after_lpf.png");
+        })
+        .polyphase_resample(lpf_taps, 1, RDS_FIRST_DECIMATE)
+        .spy(4096, move |samples| {
+            save_psd_png(&samples, 20000.0, "02 After polyphase decimate (20 kHz)", "02_rds_after_decimate.png");
+        })
+        .polyphase_resample(resamp_taps, RDS_UPSAMPLE, RDS_SECOND_DECIMATE)
+        .spy(4096, move |samples| {
+            save_psd_png(&samples, 19000.0, "03 After polyphase resample (19 kHz)", "03_rds_after_resample.png");
+        })
         .dsp_filter(matched_filter)
-        .costas_demod(&config.costas)
-        .dsp_filter(agc::Agc::new(RDS_FS, &config.agc))
-        .clock_recover(bit_rate, RDS_FS, &config.gardner)
-        .scan(0u8, |prev_diff, sample: f32| {
-            let diff_bit = if sample > 0.0 { 1u8 } else { 0u8 };
-            let data_bit = diff_bit ^ *prev_diff;
-            *prev_diff = diff_bit;
-            Some(data_bit)
+        .spy(1000, |samples| {
+            let re: Vec<f32> = samples.iter().map(|s| s.re).collect();
+            let im: Vec<f32> = samples.iter().map(|s| s.im).collect();
+            let mut plot = Plot::new();
+            use plotly::common::Mode;
+            plot.add_trace(Scatter::new(re, im).mode(Mode::Markers).name("IQ"));
+            plot.set_layout(plotly::Layout::new().title("04 Constellation after matched filter (19 kHz)"));
+            plot.write_image("04_rds_constellation_pre.png", plotly::ImageFormat::PNG, 600, 600, 1.0);
+            eprintln!("Saved: 04_rds_constellation_pre.png");
+        })
+        .complex_clock_recover(bit_rate, RDS_FS, &config.gardner)
+        .dsp_filter(agc::Agc::new(bit_rate, &rds_config::AgcConfig {
+            bandwidth_hz: config.agc.bandwidth_hz,
+            target_rms: 1.0,
+        }))
+        .spy(1100, |samples| {
+            let tail = &samples[100..];
+            let re: Vec<f32> = tail.iter().map(|s| s.re).collect();
+            let im: Vec<f32> = tail.iter().map(|s| s.im).collect();
+            let mut plot = Plot::new();
+            use plotly::common::Mode;
+            plot.add_trace(Scatter::new(re, im).mode(Mode::Markers).name("IQ"));
+            plot.set_layout(plotly::Layout::new().title("05 Constellation after Gardner+AGC (symbol rate)"));
+            plot.write_image("05_rds_costas_output.png", plotly::ImageFormat::PNG, 600, 600, 1.0);
+            eprintln!("Saved: 05_rds_costas_output.png");
+        })
+        // Differential phase detection: eliminates carrier phase/frequency entirely
+        .scan(Complex32::new(1.0, 0.0), |prev, sample: Complex32| {
+            let product = sample * prev.conj();
+            *prev = sample;
+            // Re(product) > 0 → same cluster → diff_bit=0, < 0 → opposite → diff_bit=1
+            Some(if product.re > 0.0 { 0u8 } else { 1u8 })
         })
         .rds_block_sync(&config.sync, debug);
 
@@ -614,7 +934,7 @@ fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::Ato
     // Buffer pairs
     let (iq_tx, iq_rx) = buffer::buf_pair::<Vec<Complex32>>(8);
     let (audio_tx, audio_rx) = buffer::buf_pair::<Vec<(f32, f32)>>(8);
-    let (rds_tx, rds_rx) = buffer::buf_pair::<Vec<Complex32>>(8);
+    let (rds_tx, rds_rx) = buffer::buf_pair::<Vec<f32>>(8);
 
     // Optional IQ recording: splitter tees raw IQ to both signal pipeline and recorder
     let (pipeline_rx, record_thread) = if let Some(ref path) = record_path {

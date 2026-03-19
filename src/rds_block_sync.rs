@@ -194,7 +194,7 @@ impl<I: Iterator<Item = u8>> RdsBlockSync<I> {
         1.0 - self.bler_passed as f64 / window as f64
     }
 
-    fn push_bit(&mut self, bit: u8) -> Option<SyncEvent> {
+    pub fn push_bit(&mut self, bit: u8) -> Option<SyncEvent> {
         self.shift_reg = ((self.shift_reg << 1) | (bit as u32)) & 0x03FF_FFFF; // 26 bits
         self.bit_count += 1;
         self.bits_in_block += 1;
