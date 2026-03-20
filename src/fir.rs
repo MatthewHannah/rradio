@@ -22,13 +22,25 @@ impl<Num: Filterable<Num>> Fir<Num> {
 
 impl<Num> Filter<Num> for Fir<Num> where Num: Filterable<Num> {
     fn process(&mut self, x: Num) -> Num {
-        let len = self.coeffs.len();
-        self.delay_line[self.head] = x;
-        self.head = (self.head + 1) % len;
+        self.push(x);
+        self.execute()
+    }
+}
 
+impl<Num: Filterable<Num>> Fir<Num> {
+    /// Push a sample into the delay line without computing output.
+    #[inline]
+    pub fn push(&mut self, x: Num) {
+        self.delay_line[self.head] = x;
+        self.head = (self.head + 1) % self.coeffs.len();
+    }
+
+    /// Compute the filter output from the current delay line state.
+    #[inline]
+    pub fn execute(&self) -> Num {
+        let len = self.coeffs.len();
         let mut y = Num::zero();
         for i in 0..len {
-            // Read backwards from head: most recent sample pairs with coeffs[0]
             let idx = (self.head + len - 1 - i) % len;
             y = y + self.delay_line[idx] * self.coeffs[i];
         }

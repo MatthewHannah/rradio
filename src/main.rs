@@ -571,7 +571,8 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wf
     let mut total_chips: u64 = 0;
     let mut total_bits: u64 = 0;
 
-    // Diagnostic collectors
+    // Diagnostic collectors (only when running from recording, not live)
+    let collect_diag = !metrics; // Skip diagnostics in metrics mode for cleaner benchmarks
     let mut diag_phase_err: Vec<f32> = Vec::new();
     let mut diag_strobe_re: Vec<f32> = Vec::new();
     let mut diag_strobe_im: Vec<f32> = Vec::new();
@@ -600,14 +601,17 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wf
         let baseband = nco.mix_down(mpx_sample);
         nco.step();
 
-        // 2. FIR lowpass -- push every sample, but only read at decimated rate
-        let filtered = fir_lpf.process(baseband) * fir_scale;
+        // 2. FIR lowpass — push every sample, only compute output at decimation points
+        fir_lpf.push(baseband);
 
         // 3. Decimate: only process every 24th sample
         sample_num_since_reset = sample_num_since_reset.wrapping_add(1);
         if (sample_num_since_reset as usize) % DECIMATE_RATIO != 0 {
             continue;
         }
+
+        // Compute FIR output only at decimation points (saves 23/24 of convolution work)
+        let filtered = fir_lpf.execute() * fir_scale;
 
         // --- Running at 7125 Hz (3 samp/chip) ---
 
@@ -624,10 +628,12 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wf
             // 6. BPSK modem: phase error (decision ignored, only error used)
             let demod = modem.demodulate(symbol);
 
-            // Collect diagnostics
-            diag_phase_err.push(demod.phase_error);
-            diag_strobe_re.push(symbol.re);
-            diag_strobe_im.push(symbol.im);
+            // Collect diagnostics (skip in metrics mode)
+            if collect_diag {
+                diag_phase_err.push(demod.phase_error);
+                diag_strobe_re.push(symbol.re);
+                diag_strobe_im.push(symbol.im);
+            }
 
             // 7. PLL feedback: phase error * multiplier -> NCO
             let clamped = demod.phase_error.clamp(-std::f32::consts::PI, std::f32::consts::PI);
