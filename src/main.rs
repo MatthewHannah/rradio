@@ -542,10 +542,11 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wf
     // === NCO at 57 kHz with PLL (liquid-dsp: alpha=bw, beta=sqrt(bw)) ===
     let mut nco = nco::Nco::new(57000.0, TARGET_FS, PLL_BW_HZ, CHIP_RATE);
 
-    // === FIR LPF: 255 taps, cutoff 2400 Hz ===
-    let lpf_taps = rds_taps::generate_lowpass_taps(TARGET_FS as f64, 2400.0, LPF_LEN, &rds_taps::WindowType::Blackman);
-    let mut fir_lpf = fir::Fir::<Complex32>::new(lpf_taps);
+    // === Polyphase decimator: LPF + ÷24 in one step (L=1, M=24) ===
+    let mut lpf_taps = rds_taps::generate_lowpass_taps(TARGET_FS as f64, 2400.0, LPF_LEN, &rds_taps::WindowType::Blackman);
     let fir_scale = 2.0 * LPF_CUTOFF;
+    for t in lpf_taps.iter_mut() { *t *= fir_scale; }  // bake scale into taps
+    let mut decimator = polyphase::PolyphaseResampler::<Complex32>::new(lpf_taps, 1, DECIMATE_RATIO);
 
     // === AGC (liquid-dsp compatible) ===
     let mut agc = agc::Agc::new_liquid(AGC_BW, AGC_INITIAL_GAIN);
@@ -567,7 +568,6 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wf
     let mut display = rds_block_sync::RdsDisplay::new();
     let start_time = std::time::Instant::now();
 
-    let mut sample_num_since_reset: u32 = 0;
     let mut total_chips: u64 = 0;
     let mut total_bits: u64 = 0;
 
@@ -578,40 +578,28 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wf
     let mut diag_strobe_im: Vec<f32> = Vec::new();
 
     let decimated_fs = TARGET_FS / DECIMATE_RATIO as f32;
-    eprintln!("Redsea pipeline: resample {:.0}->{:.0} -> NCO 57kHz -> LPF {}t -> div{} -> {:.0} Hz -> AGC -> SymSync(k={},b={},npfb={}) -> BPSK -> PLL(bw={:.2e},x{})",
-        wfm_fs, TARGET_FS, LPF_LEN, DECIMATE_RATIO, decimated_fs,
+    eprintln!("Redsea pipeline: resample {:.0}->{:.0} -> NCO 57kHz -> polyphase LPF+div{} ({}t) -> {:.0} Hz -> AGC -> SymSync(k={},b={},npfb={}) -> BPSK -> PLL(bw={:.2e},x{})",
+        wfm_fs, TARGET_FS, DECIMATE_RATIO, LPF_LEN, decimated_fs,
         SAMPLES_PER_SYMBOL, SYMSYNC_BETA, SYMSYNC_NPFB, PLL_BW_HZ, PLL_MULTIPLIER);
 
     use crate::filterable::Filter;
     let mut rds_iter = buffer::RecvBufIter::new(rds_rx);
 
     // === MAIN PROCESSING LOOP ===
+    // Chain: rds_iter → resample 240k→171k → NCO mix → polyphase LPF+÷24 → 7125 Hz
     loop {
         if done.load(atomic::Ordering::Relaxed) { break; }
 
-        // Get next resampled sample at 171 kHz
-        let mpx_sample = match resampler.next_from(&mut rds_iter) {
+        // Polyphase decimator pulls from NCO-mixed stream, which pulls from resampler
+        let filtered = match decimator.next_from(&mut std::iter::from_fn(|| {
+            let mpx_sample = resampler.next_from(&mut rds_iter)?;
+            let baseband = nco.mix_down(mpx_sample);
+            nco.step();
+            Some(baseband)
+        })) {
             Some(s) => s,
             None => break,
         };
-
-        // --- Running at 171 kHz ---
-
-        // 1. NCO mix down to complex baseband
-        let baseband = nco.mix_down(mpx_sample);
-        nco.step();
-
-        // 2. FIR lowpass — push every sample, only compute output at decimation points
-        fir_lpf.push(baseband);
-
-        // 3. Decimate: only process every 24th sample
-        sample_num_since_reset = sample_num_since_reset.wrapping_add(1);
-        if (sample_num_since_reset as usize) % DECIMATE_RATIO != 0 {
-            continue;
-        }
-
-        // Compute FIR output only at decimation points (saves 23/24 of convolution work)
-        let filtered = fir_lpf.execute() * fir_scale;
 
         // --- Running at 7125 Hz (3 samp/chip) ---
 
