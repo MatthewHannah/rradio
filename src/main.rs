@@ -21,7 +21,6 @@ mod rds_config;
 mod rds_taps;
 mod agc;
 mod costas;
-mod polyphase;
 mod nco;
 mod biphase;
 mod psk_modem;
@@ -41,7 +40,7 @@ use crate::gardner_clock_recovery::GardnerClockRecoverable;
 use crate::interleaver::InterleaveableIter;
 use crate::manchester::ManchesterDecodable;
 use crate::rds_block_sync::RdsBlockSyncable;
-use crate::resample::{Downsampleable, Upsampleable};
+use crate::resample::{Downsampleable, RationalResampleable};
 use crate::spy::SpyableIter;
 use crate::wideband_fm_audio::WidebandFmAudioIterable;
 
@@ -470,6 +469,10 @@ fn write_wav<I>(samples: I, path: &str, fs: u32) where I: Iterator<Item = f32> {
     eprintln!("Wrote {} samples ({:.1}s) to {}", count, count as f64 / (fs as f64 * 2.0), path);
 }
 
+fn rds_pipeline_v3(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wfm_fs: f32, config: &rds_config::RdsConfig) {
+    let iterable = buffer::RecvBufIter::new(rds_rx);
+}
+
 const AUDIO_DOWNSAMPLE: usize = 5;
 const RDS_FIRST_DECIMATE: usize = 12; // 240 kHz → 20 kHz
 const RDS_UPSAMPLE: usize = 19;       // 20 kHz → 380 kHz (virtual)
@@ -537,7 +540,7 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wf
     let proto_cutoff = TARGET_FS as f64 / 2.0;
     let mut resamp_taps = rds_taps::generate_lowpass_taps(proto_fs, proto_cutoff, 570, &rds_taps::WindowType::Blackman);
     for t in resamp_taps.iter_mut() { *t *= resamp_l as f32; }
-    let mut resampler = polyphase::PolyphaseResampler::<f32>::new(resamp_taps, resamp_l, resamp_m);
+    let mut resampler = resample::RationalResampler::<f32>::new(resamp_taps, resamp_l, resamp_m);
 
     // === NCO at 57 kHz with PLL (liquid-dsp: alpha=bw, beta=sqrt(bw)) ===
     let mut nco = nco::Nco::new(57000.0, TARGET_FS, PLL_BW_HZ, CHIP_RATE);
@@ -546,7 +549,7 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wf
     let mut lpf_taps = rds_taps::generate_lowpass_taps(TARGET_FS as f64, 2400.0, LPF_LEN, &rds_taps::WindowType::Blackman);
     let fir_scale = 2.0 * LPF_CUTOFF;
     for t in lpf_taps.iter_mut() { *t *= fir_scale; }  // bake scale into taps
-    let mut decimator = polyphase::PolyphaseResampler::<Complex32>::new(lpf_taps, 1, DECIMATE_RATIO);
+    let mut decimator = resample::RationalResampler::<Complex32>::new(lpf_taps, 1, DECIMATE_RATIO);
 
     // === AGC (liquid-dsp compatible) ===
     let mut agc = agc::Agc::new_liquid(AGC_BW, AGC_INITIAL_GAIN);
@@ -591,8 +594,8 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wf
         if done.load(atomic::Ordering::Relaxed) { break; }
 
         // Polyphase decimator pulls from NCO-mixed stream, which pulls from resampler
-        let filtered = match decimator.next_from(&mut std::iter::from_fn(|| {
-            let mpx_sample = resampler.next_from(&mut rds_iter)?;
+        let filtered = match decimator.process(&mut std::iter::from_fn(|| {
+            let mpx_sample = resampler.process(&mut rds_iter)?;
             let baseband = nco.mix_down(mpx_sample);
             nco.step();
             Some(baseband)
@@ -618,9 +621,9 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wf
 
             // Collect diagnostics (skip in metrics mode)
             if collect_diag {
-                diag_phase_err.push(demod.phase_error);
-                diag_strobe_re.push(symbol.re);
-                diag_strobe_im.push(symbol.im);
+                //diag_phase_err.push(demod.phase_error);
+                //diag_strobe_re.push(symbol.re);
+                //diag_strobe_im.push(symbol.im);
             }
 
             // 7. PLL feedback: phase error * multiplier -> NCO
@@ -733,18 +736,17 @@ fn rds_pipeline_old(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>
         RDS_UPSAMPLE, RDS_SECOND_DECIMATE, arm2_len,
         144);
 
-    use polyphase::PolyphaseResampleable;
     use gardner_clock_recovery::ComplexClockRecoverable;
     let wfm_fs_copy = wfm_fs;
     let mut groups = rds_iter
         .spy(4096, move |samples| {
             save_psd_png(&samples, wfm_fs_copy, "01 Input from StereoDownmixer (240 kHz)", "01_rds_after_lpf.png");
         })
-        .polyphase_resample(lpf_taps, 1, RDS_FIRST_DECIMATE)
+        .resample(lpf_taps, 1, RDS_FIRST_DECIMATE)
         .spy(4096, move |samples| {
             save_psd_png(&samples, 20000.0, "02 After polyphase decimate (20 kHz)", "02_rds_after_decimate.png");
         })
-        .polyphase_resample(resamp_taps, RDS_UPSAMPLE, RDS_SECOND_DECIMATE)
+        .resample(resamp_taps, RDS_UPSAMPLE, RDS_SECOND_DECIMATE)
         .spy(4096, move |samples| {
             save_psd_png(&samples, 19000.0, "03 After polyphase resample (19 kHz)", "03_rds_after_resample.png");
         })
