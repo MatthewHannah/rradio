@@ -3,7 +3,6 @@ use num_traits::Zero;
 pub struct Upsample<I, T> where I: Iterator<Item = T>, T: Copy + Zero {
     iter: I,
     factor: usize,
-    cur: T,
     idx: usize,
 }
 
@@ -12,7 +11,6 @@ impl<I, T> Upsample<I, T> where I: Iterator<Item = T>, T: Copy + Zero {
         Upsample {
             iter: iter,
             factor: factor,
-            cur: T::zero(),
             idx: 0,
         }
     }
@@ -22,11 +20,13 @@ impl<I, T> Iterator for Upsample<I, T> where I: Iterator<Item = T>, T: Copy + Ze
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.idx == 0 {
-            self.cur = self.iter.next()?;
-        }
+        let out = if self.idx == 0 {
+            self.iter.next()
+        } else {
+            Some(T::zero())
+        };
         self.idx = (self.idx + 1) % self.factor;
-        Some(self.cur)
+        out
     }
 }
 
@@ -88,9 +88,9 @@ mod tests {
         let input = vec![Complex32::new(1.0, 0.0), Complex32::new(2.0, 0.0), Complex32::new(3.0, 0.0)];
         let upsampled: Vec<Complex32> = input.into_iter().upsample(3).collect();
         let expected = vec![
-            Complex32::new(1.0, 0.0), Complex32::new(1.0, 0.0), Complex32::new(1.0, 0.0),
-            Complex32::new(2.0, 0.0), Complex32::new(2.0, 0.0), Complex32::new(2.0, 0.0),
-            Complex32::new(3.0, 0.0), Complex32::new(3.0, 0.0), Complex32::new(3.0, 0.0),
+            Complex32::new(1.0, 0.0), Complex32::new(0.0, 0.0), Complex32::new(0.0, 0.0),
+            Complex32::new(2.0, 0.0), Complex32::new(0.0, 0.0), Complex32::new(0.0, 0.0),
+            Complex32::new(3.0, 0.0), Complex32::new(0.0, 0.0), Complex32::new(0.0, 0.0),
         ];
         assert_eq!(upsampled, expected);
     }
