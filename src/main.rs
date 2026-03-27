@@ -527,10 +527,7 @@ fn rds_pipeline_v4(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>,
             None => break,
         };
 
-        if constellation.len() == 0 {
-            eprintln!("First symbol produced: re={:.4} im={:.4}", sym.re, sym.im);
-        }
-        if constellation.len() < 20000 {
+        if false && constellation.len() < 20000 {
             constellation.push(sym);
             if constellation.len() == 20000 {
                 let mut plot = Plot::new();
@@ -1275,7 +1272,7 @@ fn main() {
                 .unwrap_or(96.1)
                 * 1e6;
             let config = pluto::SdrConfig {
-                uri: "ip:192.168.2.1".to_string(),
+                uri: "ip:pluto.local".to_string(),
                 station,
                 bw: 600e6,
                 fs: 2.4e6,
