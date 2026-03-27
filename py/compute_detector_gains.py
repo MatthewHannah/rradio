@@ -149,12 +149,15 @@ def main():
         k_det = compute_k_det_iq(1.0)
         det_desc = "I·Q at unit power"
 
+    k_ted_per_sample = k_ted * args.nfilters
+
     # Print results
     print(f"Filter: RRC α={args.alpha}, span={args.span}, SPS={args.sps}, nfilters={args.nfilters}")
     print(f"  Prototype: {len(h_proto)} taps at {proto_sps} sps → {h_arms.shape[1]} taps/arm")
     print(f"  MF peak at arm {peak_arm}, value={mf_vals[peak_arm]:.4f} (normalized to 1.0)")
     print()
-    print(f"K_TED = {k_ted:.6f}  (ML TED S-curve slope per acc unit, post-AGC)")
+    print(f"K_TED = {k_ted:.6f}  (per acc unit, post-AGC)")
+    print(f"K_TED = {k_ted_per_sample:.6f}  (per input sample = K_TED_acc × nfilters)")
     print(f"K_DET = {k_det:.6f}  ({det_desc})")
     print()
     print(f"S-curve at each arm (normalized):")
@@ -164,7 +167,9 @@ def main():
     print()
     print("// Paste into src/rds_demod.rs:")
     print(f"const COSTAS_K_DET: f32 = {k_det:.6f};  // {det_desc}")
-    print(f"const TIMING_K_TED: f32 = {k_ted:.6f};  // ML TED, RRC α={args.alpha} span={args.span} nfilters={args.nfilters}")
+    print(f"const TIMING_K_TED: f32 = {k_ted:.6f};  // per acc unit, RRC α={args.alpha} span={args.span} nfilters={args.nfilters}")
+    print(f"const TIMING_NFILTERS: usize = {args.nfilters};")
+    print(f"// K_TED per input sample = TIMING_K_TED * TIMING_NFILTERS = {k_ted_per_sample:.6f}")
 
 
 if __name__ == "__main__":

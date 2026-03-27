@@ -64,6 +64,7 @@ const COSTAS_K_DET: f32 = 0.761594; // tanh(1): soft-decision tanh(I)·Q detecto
 const TIMING_BN_HZ: f32 = 0.5;
 const TIMING_DAMPING: f32 = 1.0;    // critically damped
 const TIMING_K_TED: f32 = 0.160671; // ML TED S-curve slope per acc unit (post-AGC, from filter)
+const TIMING_NFILTERS: usize = 12;
 
 const COSTAS_MAX_FREQ_HZ: f32 = 10.0;
 
@@ -84,14 +85,16 @@ impl RdsDemod {
         let symbol_omega_n_norm = bn_to_omega_n_norm(TIMING_BN_HZ, TIMING_DAMPING, R_CHIP);
 
         let samples_per_symbol = 3;
-        let symbol_nfilt = 12;
         let symbol_max_period_deviation = 1.0;
+
+        // K_TED per input sample = K_TED_acc × nfilters (chain rule: 1 sample = nfilters acc units)
+        let k_ted_per_sample = TIMING_K_TED * TIMING_NFILTERS as f32;
 
         let downsample_filter = rds_taps::generate_lowpass_taps(171e3, 2500.0, 1001, &rds_taps::WindowType::Blackman);
 
         RdsDemod {
             nco: NcoState::new(57e3, 171e3),
-            symbol_sync: SymbolSync::new(mf, samples_per_symbol, symbol_max_period_deviation, symbol_nfilt, symbol_omega_n_norm, TIMING_DAMPING, TIMING_K_TED),
+            symbol_sync: SymbolSync::new(mf, samples_per_symbol, symbol_max_period_deviation, TIMING_NFILTERS, symbol_omega_n_norm, TIMING_DAMPING, k_ted_per_sample),
             costas_loop_filter: PiLoopFilter::new(costas_omega_n_norm, COSTAS_DAMPING, COSTAS_K_DET, -costas_max, costas_max),
             downsampler: RationalResampler::new(downsample_filter, 1, 24),
             debug: RdsDemodDebug::default(),
