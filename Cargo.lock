@@ -1247,6 +1247,7 @@ dependencies = [
  "hound",
  "industrial-io",
  "num-complex",
+ "num-integer",
  "num-traits",
  "plotly",
  "rustfft",

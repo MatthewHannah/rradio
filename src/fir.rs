@@ -7,6 +7,7 @@ pub struct Fir<Num> {
     coeffs: Vec<f32>,
     delay_line: Vec<Num>,
     head: usize,
+    len: usize,
 }
 
 impl<Num: Filterable<Num>> Fir<Num> {
@@ -14,37 +15,39 @@ impl<Num: Filterable<Num>> Fir<Num> {
         let len = coeffs.len();
         Fir {
             coeffs,
-            delay_line: vec![Num::zero(); len],
+            delay_line: vec![Num::zero(); len * 2], // doubled for contiguous access
             head: 0,
+            len,
         }
     }
-}
 
-impl<Num> Filter<Num> for Fir<Num> where Num: Filterable<Num> {
-    fn process(&mut self, x: Num) -> Num {
+    /// Push a sample into the delay line without computing output.
+    #[inline]
+    pub fn push(&mut self, x: Num) {
+        self.delay_line[self.head] = x;
+        self.delay_line[self.head + self.len] = x; // duplicate for wraparound
+        self.head = (self.head + 1) % self.len;
+    }
+
+    /// Compute the filter output from the current delay line state.
+    /// head points to the oldest sample; head+len-1 is the newest.
+    #[inline]
+    pub fn execute(&self) -> Num {
+        self.delay_line[self.head..self.head + self.len]
+            .iter()
+            .zip(self.coeffs.iter().rev())
+            .fold(Num::zero(), |acc, (&s, &c)| acc + s * c)
+    }
+
+    pub fn process(&mut self, x: Num) -> Num {
         self.push(x);
         self.execute()
     }
 }
 
-impl<Num: Filterable<Num>> Fir<Num> {
-    /// Push a sample into the delay line without computing output.
-    #[inline]
-    pub fn push(&mut self, x: Num) {
-        self.delay_line[self.head] = x;
-        self.head = (self.head + 1) % self.coeffs.len();
-    }
-
-    /// Compute the filter output from the current delay line state.
-    #[inline]
-    pub fn execute(&self) -> Num {
-        let len = self.coeffs.len();
-        let mut y = Num::zero();
-        for i in 0..len {
-            let idx = (self.head + len - 1 - i) % len;
-            y = y + self.delay_line[idx] * self.coeffs[i];
-        }
-        y
+impl<Num> Filter<Num> for Fir<Num> where Num: Filterable<Num> {
+    fn process(&mut self, x: Num) -> Num {
+        self.process(x)
     }
 }
 

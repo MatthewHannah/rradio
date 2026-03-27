@@ -25,24 +25,34 @@ mod nco;
 mod biphase;
 mod psk_modem;
 mod symsync;
+mod symbolsync;
+mod rds_demod;
+mod pi_loop;
 
 use std::sync::atomic;
 use std::sync::Arc;
 
+use num_complex::Complex;
+use num_integer::Integer;
+use plotly::Histogram;
+use plotly::ImageFormat;
 use plotly::{HeatMap, Plot, Scatter};
 use num_complex::Complex32;
 use rustfft::{num_traits::Zero, FftPlanner};
 
 use crate::costas::CostasDemodulable;
+use crate::filterable::Filter;
 use crate::filterable::FilterableIter;
 use crate::fm_demod::FmDemodulatable;
 use crate::gardner_clock_recovery::GardnerClockRecoverable;
 use crate::interleaver::InterleaveableIter;
 use crate::manchester::ManchesterDecodable;
 use crate::rds_block_sync::RdsBlockSyncable;
+use crate::rds_config::CostasConfig;
 use crate::resample::{Downsampleable, RationalResampleable};
 use crate::spy::SpyableIter;
 use crate::wideband_fm_audio::WidebandFmAudioIterable;
+use crate::osc::Mixable;
 
 #[allow(dead_code)]
 fn spectrogram<T>(window_size: usize, overlap: usize, fs: f32, samples: &[T]) where Complex32: From<T>, T: Copy {
@@ -149,6 +159,16 @@ fn plot_re_im(samples: &[Complex32]) {
     let itrace: Box<Scatter<usize, f32>> = Scatter::new(sample_count.clone(), i).into();
     plot.add_trace(rtrace);
     plot.add_trace(itrace);
+    plot.show();
+}
+
+#[allow(dead_code)]
+fn plot_re(samples: &[f32], title: &str) {
+    let sample_count: Vec<usize> = (0..samples.len()).collect();
+    let mut plot = Plot::new();
+    let rtrace: Box<Scatter<usize, f32>> = Scatter::new(sample_count.clone(), samples.to_vec()).into();
+    plot.add_trace(rtrace);
+    plot.set_layout(plotly::Layout::new().title(title));
     plot.show();
 }
 
@@ -274,11 +294,10 @@ fn buffer_soapy(done: &atomic::AtomicBool, config: &soapy::SoapyConfig, mut out:
 
 fn buffer_sigmf(done: &atomic::AtomicBool, mut streamer: sigmf::SigmfStreamer, mut out: buffer::SendBuf<Vec<Complex32>>, tune_offset: f32, fs: f32) {
     const CHUNK: usize = 4*1024*1024;
-    let mut osc = osc::Osc::new(tune_offset, fs);
     while !done.load(atomic::Ordering::SeqCst) {
         if let Some(mut buf) = out.get() {
             buf.clear();
-            buf.extend((&mut streamer).take(CHUNK).map(|s| s * osc.next()));
+            buf.extend((&mut streamer).take(CHUNK).mix(tune_offset, fs));
             if buf.is_empty() {
                 break;
             }
@@ -469,8 +488,271 @@ fn write_wav<I>(samples: I, path: &str, fs: u32) where I: Iterator<Item = f32> {
     eprintln!("Wrote {} samples ({:.1}s) to {}", count, count as f64 / (fs as f64 * 2.0), path);
 }
 
-fn rds_pipeline_v3(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wfm_fs: f32, config: &rds_config::RdsConfig) {
+fn rds_pipeline_v4(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wfm_fs: f32, config: &rds_config::RdsConfig, debug: bool, metrics: bool) {
     let iterable = buffer::RecvBufIter::new(rds_rx);
+
+    let stage1_target_fs: f32 = 57e3 * 3.0;
+    let wfm_fs_u64 = wfm_fs as u64;
+    let lcm = (stage1_target_fs as u64).lcm(&wfm_fs_u64) as f64;
+    let stage1_up = (lcm / (wfm_fs as f64)) as usize;
+    let stage1_down = (lcm / (stage1_target_fs as f64)) as usize;
+    let up_fs = wfm_fs * (stage1_up as f32);
+
+    println!("Stage 1 resample: {} → {} (up {} down {})", wfm_fs, stage1_target_fs, stage1_up, stage1_down);
+
+    let mut base = iterable
+        .resample(rds_taps::generate_lowpass_taps(up_fs as f64, 80e3, 255, &rds_taps::WindowType::Blackman), stage1_up, stage1_down);
+
+    let mut rds = rds_demod::RdsDemod::new();
+
+    let mut biphase_decoder = biphase::BiphaseDecoder::new();
+    let mut delta_decoder = biphase::DeltaDecoder::new();
+
+    let mut block_sync = rds_block_sync::RdsBlockSync::new(
+        std::iter::empty::<u8>(), &config.sync, debug);
+    let mut decoder = rds_block_sync::RdsDecoder::new();
+    let mut display = rds_block_sync::RdsDisplay::new();
+    let start_time = std::time::Instant::now();
+
+    let mut constellation = vec![];
+    let mut constellation_num = 0;
+
+    loop {
+        if done.load(atomic::Ordering::SeqCst) {
+            break;
+        }
+
+        let sym = match rds.next(&mut base) {
+            Some(s) => s,
+            None => break,
+        };
+
+        if constellation.len() < 20000 {
+            constellation.push(sym);
+            if constellation.len() == 20000 {
+                let mut plot = Plot::new();
+                let trace = Scatter::new(constellation.iter().map(|s| s.re).collect(), constellation.iter().map(|s| s.im).collect()).mode(plotly::common::Mode::Markers);
+                plot.add_trace(trace);
+
+                plot.set_layout(plotly::Layout::new().title(format!("Biphase Constellation {}", constellation_num)));
+                plot.write_image(format!("biphase_constellation_{}.png", constellation_num), ImageFormat::PNG, 600, 600, 1.0);
+
+                let mut plot = Plot::new();
+                let trace2 = Histogram::new(constellation.iter().map(|s| s.re).collect()).name("Re");
+                let trace3 = Histogram::new(constellation.iter().map(|s| s.im).collect()).name("Im");
+                plot.add_trace(trace2);
+                plot.add_trace(trace3);
+                plot.set_layout(plotly::Layout::new().title(format!("Biphase Histogram {}", constellation_num)));
+                plot.write_image(format!("biphase_hist_{}.png", constellation_num), ImageFormat::PNG, 600, 600, 1.0);
+
+                constellation.clear();
+                constellation_num += 1;
+            }
+        }
+
+        let result = biphase_decoder.push(sym);
+        if result.has_value {
+            let data_bit = delta_decoder.decode(result.bit);
+
+            if let Some(event) = block_sync.push_bit(data_bit as u8) {
+                match event {
+                    rds_block_sync::SyncEvent::Group(group) => {
+                        let state = decoder.process(&group);
+                        let elapsed = start_time.elapsed().as_secs_f64();
+                        if metrics {
+                            let pi_str = if group.pi_code != 0 { format!("{:04X}", group.pi_code) } else { "0000".to_string() };
+                            eprintln!("RDSMETRIC {{\"t\":{:.3},\"bler\":{:.4},\"groups\":{},\"pi\":\"{}\"}}", elapsed, group.rolling_bler, state.groups_decoded, pi_str);
+                        }
+                        if debug {
+                            let v = if group.version { "B" } else { "A" };
+                            eprintln!("RDS Group {}{}: PI=0x{:04X}  BLER={:.1}%", group.group_type, v, group.pi_code, group.rolling_bler * 100.0);
+                        } else if !metrics {
+                            display.set_synced(true);
+                            display.render(&state);
+                        }
+                    }
+                    rds_block_sync::SyncEvent::Locked => {
+                        if !metrics && !debug { display.set_synced(true); display.render(&decoder.display_state()); }
+                    }
+                    rds_block_sync::SyncEvent::LostSync | rds_block_sync::SyncEvent::Searching => {
+                        if !metrics && !debug { display.set_synced(false); display.render(&decoder.display_state()); }
+                    }
+                }
+            }
+
+        }
+    }
+
+    plot_re(&rds.debug.agc_hist[101..], "AGC history");
+    plot_re(&rds.debug.freq_avg_hist, "Costas frequency adjustment history");
+    plot_re(&rds.debug.phase_adj_hist, "Costas phase adjustment history");
+    save_psd_png(&rds.debug.filtered_samples_hist, 171e3/24.0, "Filtered Samples", "filt.png");
+
+    if metrics {
+        let elapsed = start_time.elapsed().as_secs_f64();
+        let state = decoder.display_state();
+        eprintln!("RDSSUMMARY {{\"groups\":{},\"duration\":{:.1},\"final_bler\":{:.4}}}",
+            state.groups_decoded, elapsed, 0.0);
+    }
+
+}
+
+fn rds_pipeline_v3(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wfm_fs: f32, config: &rds_config::RdsConfig, debug: bool, metrics: bool) {
+    let iterable = buffer::RecvBufIter::new(rds_rx);
+
+    use plotly::{Plot, Scatter, common::Mode};
+
+    // need to mix 57kHz to baseband
+    let stage1_target_fs: f32 = 57e3 * 2.0;
+    let wfm_fs_u64 = wfm_fs as u64;
+    let lcm = (stage1_target_fs as u64).lcm(&wfm_fs_u64) as f64;
+    let stage1_up = (lcm / (wfm_fs as f64)) as usize;
+    let stage1_down = (lcm / (stage1_target_fs as f64)) as usize;
+    let proto_cutoff = 100e3;
+    let stage1_taps = rds_taps::generate_lowpass_taps(lcm, proto_cutoff, 570, &rds_taps::WindowType::Blackman);
+    println!("Stage 1 resample: {} → {} (up {} down {})", wfm_fs, stage1_target_fs, stage1_up, stage1_down);
+
+    // then get down to ~3 samples per chip
+    let stage2_target_fs = 2375.0 * 3.0;
+    let stage2_up = 1usize;
+    let stage2_down = (stage1_target_fs / (stage2_target_fs)) as usize;
+    let stage2_taps = rds_taps::generate_lowpass_taps(stage1_target_fs as f64, 2400.0, 255, &rds_taps::WindowType::Blackman);
+    let stage2_target_fs = stage2_target_fs as f32;
+    println!("Stage 2 resample: {} → {} (up {} down {})", stage1_target_fs, stage2_target_fs, stage2_up, stage2_down);
+
+    let agc_bw = 500.0 / 171e3;
+    let agc_initial_gain = 0.08;
+
+    let symsync_bw: f32 = 0.013;
+    const SYMSYNC_DELAY: usize = 8;
+    const SYMSYNC_BETA: f32 = 0.8;
+    const SYMSYNC_NPFB: usize = 32;
+
+    let start_time = std::time::Instant::now();
+
+    let mut symsync = symsync::SymSync::new(3, SYMSYNC_DELAY, SYMSYNC_BETA, SYMSYNC_NPFB);
+    symsync.set_bandwidth(symsync_bw);
+    symsync.set_output_rate(1);
+
+    let _stage1_fs = stage1_target_fs as f32;
+    let _stage2_fs = stage2_target_fs as f32;
+
+    let mut base = iterable
+        .resample(stage1_taps, stage1_up, stage1_down)
+        .mix(-57e3, stage1_target_fs)
+        .resample(stage2_taps, stage2_up, stage2_down)
+        .dsp_filter(agc::Agc::new_liquid(agc_bw, agc_initial_gain));
+
+    let costas_config = rds_config::CostasConfig { loop_bw: 0.08 };
+    let mut costas = costas::CostasLoop::new(&costas_config);
+
+    let mut biphase_decoder = biphase::BiphaseDecoder::new();
+    let mut delta_decoder = biphase::DeltaDecoder::new();
+
+    let mut block_sync = rds_block_sync::RdsBlockSync::new(
+        std::iter::empty::<u8>(), &config.sync, debug);
+    let mut decoder = rds_block_sync::RdsDecoder::new();
+    let mut display = rds_block_sync::RdsDisplay::new();
+    let start_time = std::time::Instant::now();
+
+    let mut total_bits: usize = 0;
+
+    // let mut constellation_pre_pre_vec = vec![];
+    // let mut constellation_pre_vec = vec![];
+    // let mut constellation_post_vec = vec![];
+
+    loop {
+        if done.load(atomic::Ordering::Relaxed) { break; }
+
+        let sample = match base.next() {
+            Some(s) => s,
+            None => break,
+        };
+
+        // if constellation_pre_pre_vec.len() < 5000 {
+        //     constellation_pre_pre_vec.push(sample);
+        //     if constellation_pre_pre_vec.len() == 5000 {
+        //         let mut plot = Plot::new();
+        //         let trace = Scatter::new(constellation_pre_pre_vec.iter().map(|s| s.re).collect(), constellation_pre_pre_vec.iter().map(|s| s.im).collect()).mode(Mode::Markers);
+        //         plot.add_trace(trace);
+        //         plot.set_layout(plotly::Layout::new().title("Constellation Pre Sym Sync"));
+        //         plot.write_image("constellation_pre_sync.png", plotly::ImageFormat::PNG, 600, 600, 1.0);
+        //     }
+        // }
+
+
+        let syms = symsync.execute(sample);
+        if syms.is_empty() { continue; }
+
+        // if constellation_pre_vec.len() < 5000 {
+        //     constellation_pre_vec.push(sample);
+        //     if constellation_pre_vec.len() == 5000 {
+        //         let mut plot = Plot::new();
+        //         let trace = Scatter::new(constellation_pre_vec.iter().map(|s| s.re).collect(), constellation_pre_vec.iter().map(|s| s.im).collect()).mode(Mode::Markers);
+        //         plot.add_trace(trace);
+        //         plot.set_layout(plotly::Layout::new().title("Constellation Pre Costas"));
+        //         plot.write_image("constellation_pre.png", plotly::ImageFormat::PNG, 600, 600, 1.0);
+        //     }
+        // }
+
+        for &sym in syms {
+            let sym = costas.process(sym);
+
+            // if constellation_post_vec.len() < 5000 {
+            //     constellation_post_vec.push(sym);
+            //     if constellation_post_vec.len() == 5000 {
+            //         let mut plot = Plot::new();
+            //         let trace = Scatter::new(constellation_post_vec.iter().map(|s| s.re).collect(), constellation_post_vec.iter().map(|s| s.im).collect()).mode(Mode::Markers);
+            //         plot.add_trace(trace);
+            //         plot.set_layout(plotly::Layout::new().title("Constellation Post Costas"));
+            //         plot.write_image("constellation_post.png", plotly::ImageFormat::PNG, 600, 600, 1.0);
+            //     }
+            // }
+
+
+            let result = biphase_decoder.push(sym);
+            if result.has_value {
+                let data_bit = delta_decoder.decode(result.bit);
+
+                total_bits += 1;
+
+                if let Some(event) = block_sync.push_bit(data_bit as u8) {
+                    match event {
+                        rds_block_sync::SyncEvent::Group(group) => {
+                            let state = decoder.process(&group);
+                            let elapsed = start_time.elapsed().as_secs_f64();
+                            if metrics {
+                                let pi_str = if group.pi_code != 0 { format!("{:04X}", group.pi_code) } else { "0000".to_string() };
+                                eprintln!("RDSMETRIC {{\"t\":{:.3},\"bler\":{:.4},\"groups\":{},\"pi\":\"{}\"}}", elapsed, group.rolling_bler, state.groups_decoded, pi_str);
+                            }
+                            if debug {
+                                let v = if group.version { "B" } else { "A" };
+                                eprintln!("RDS Group {}{}: PI=0x{:04X}  BLER={:.1}%", group.group_type, v, group.pi_code, group.rolling_bler * 100.0);
+                            } else if !metrics {
+                                display.set_synced(true);
+                                display.render(&state);
+                            }
+                        }
+                        rds_block_sync::SyncEvent::Locked => {
+                            if !metrics && !debug { display.set_synced(true); display.render(&decoder.display_state()); }
+                        }
+                        rds_block_sync::SyncEvent::LostSync | rds_block_sync::SyncEvent::Searching => {
+                            if !metrics && !debug { display.set_synced(false); display.render(&decoder.display_state()); }
+                        }
+                    }
+                }
+
+            }
+        }
+    }
+
+    if metrics {
+        let elapsed = start_time.elapsed().as_secs_f64();
+        let state = decoder.display_state();
+        eprintln!("RDSSUMMARY {{\"groups\":{},\"duration\":{:.1},\"final_bler\":{:.4}}}",
+            state.groups_decoded, elapsed, 0.0);
+    }
+
 }
 
 const AUDIO_DOWNSAMPLE: usize = 5;
@@ -588,6 +870,9 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wf
     use crate::filterable::Filter;
     let mut rds_iter = buffer::RecvBufIter::new(rds_rx);
 
+    let mut constellation_pre_symsync_vec = vec![];
+    let mut constellation_post_symsync_vec = vec![];
+
     // === MAIN PROCESSING LOOP ===
     // Chain: rds_iter → resample 240k→171k → NCO mix → polyphase LPF+÷24 → 7125 Hz
     loop {
@@ -609,10 +894,34 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wf
         // 4. AGC
         let agc_out = agc.process(filtered);
 
+        use plotly::{Plot, Scatter, Layout, common::Mode};
+
+
+        if constellation_pre_symsync_vec.len() < 5000 {
+            constellation_pre_symsync_vec.push(agc_out);
+            if constellation_pre_symsync_vec.len() == 500 {
+                let mut plot = Plot::new();
+                let trace = Scatter::new(constellation_pre_symsync_vec.iter().map(|s| s.re).collect(), constellation_pre_symsync_vec.iter().map(|s| s.im).collect()).mode(Mode::Markers);
+                plot.add_trace(trace);
+                plot.set_layout(plotly::Layout::new().title("Constellation Pre Symsync"));
+                plot.write_image("constellation_pre.png", plotly::ImageFormat::PNG, 600, 600, 1.0);
+            }
+        }
+
         // 5. SymSync: polyphase filterbank clock recovery
         let symbols = symsync.execute(agc_out);
 
         for &symbol in symbols.iter() {
+            if constellation_post_symsync_vec.len() < 5000 {
+                constellation_post_symsync_vec.push(symbol);
+                if constellation_post_symsync_vec.len() == 5000 {
+                    let mut plot = Plot::new();
+                    let trace = Scatter::new(constellation_post_symsync_vec.iter().map(|s| s.re).collect(), constellation_post_symsync_vec.iter().map(|s| s.im).collect()).mode(Mode::Markers);
+                    plot.add_trace(trace);
+                    plot.set_layout(plotly::Layout::new().title("Constellation Post Symsync"));
+                    plot.write_image("constellation_post.png", plotly::ImageFormat::PNG, 600, 600, 1.0);
+                }
+            }
             // --- Running at ~2375 Hz (chip rate) ---
             total_chips += 1;
 
@@ -691,153 +1000,6 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wf
         plot.set_layout(Layout::new().title("09 Constellation (chip strobes)"));
         plot.write_image("09_constellation.png", plotly::ImageFormat::PNG, 600, 600, 1.0);
         eprintln!("Saved: 09_constellation.png");
-    }
-
-    if metrics {
-        let elapsed = start_time.elapsed().as_secs_f64();
-        let state = decoder.display_state();
-        eprintln!("RDSSUMMARY {{\"groups\":{},\"duration\":{:.1},\"final_bler\":{:.4}}}",
-            state.groups_decoded, elapsed, 0.0);
-    }
-}
-
-fn rds_pipeline_old(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wfm_fs: f32, config: &rds_config::RdsConfig, debug: bool, metrics: bool) {
-    let bit_rate = 1187.5_f32;
-    let rds_iter = buffer::RecvBufIter::new(rds_rx);
-
-    // NCO to convert f32 MPX → Complex32 baseband (replaces the PLL from StereoDownmixer)
-    let mut nco_old = nco::Nco::new(57000.0, wfm_fs, 0.03, 2375.0);
-    let rds_iter = rds_iter.map(move |s| {
-        let out = nco_old.mix_down(s);
-        nco_old.step();
-        out
-    });
-
-    // Two-stage polyphase resampler: 240 kHz → 20 kHz → 19 kHz
-    let window = rds_taps::WindowType::from_str(&config.matched_filter_window)
-        .unwrap_or(rds_taps::WindowType::Blackman);
-
-    // Stage 1: Decimating lowpass 240 kHz → 20 kHz (prototype at L×fs = 1×240k = 240 kHz)
-    let lpf_taps = rds_taps::generate_lowpass_taps(wfm_fs as f64, 4000.0, 201, &rds_taps::WindowType::Blackman);
-
-    // Stage 2: Polyphase rational resample 20 kHz → 19 kHz with AA (prototype at L×fs = 19×20k = 380 kHz)
-    let intermediate_fs = wfm_fs / RDS_FIRST_DECIMATE as f32; // 20 kHz
-    let proto_fs = (RDS_UPSAMPLE as f64) * (intermediate_fs as f64); // 380 kHz
-    let mut resamp_taps = rds_taps::generate_lowpass_taps(proto_fs, 9500.0, 2881, &rds_taps::WindowType::Blackman);
-    for t in resamp_taps.iter_mut() { *t *= RDS_UPSAMPLE as f32; }
-
-    // Matched filter at output rate (19 kHz)
-    let matched_taps = rds_taps::generate_manchester_rrc_taps(RDS_FS as f64, config.matched_filter_spans, &window);
-    let matched_filter: fir::Fir<Complex32> = fir::Fir::new(matched_taps);
-
-    let arm2_len = (resamp_taps.len() + RDS_UPSAMPLE - 1) / RDS_UPSAMPLE;
-    eprintln!("Pipeline: polyphase ÷{} ({}t) → polyphase L={}/M={} ({}t/arm) → matched ({}t) → AGC → Gardner → Costas",
-        RDS_FIRST_DECIMATE, lpf_taps.len(),
-        RDS_UPSAMPLE, RDS_SECOND_DECIMATE, arm2_len,
-        144);
-
-    use gardner_clock_recovery::ComplexClockRecoverable;
-    let wfm_fs_copy = wfm_fs;
-    let mut groups = rds_iter
-        .spy(4096, move |samples| {
-            save_psd_png(&samples, wfm_fs_copy, "01 Input from StereoDownmixer (240 kHz)", "01_rds_after_lpf.png");
-        })
-        .resample(lpf_taps, 1, RDS_FIRST_DECIMATE)
-        .spy(4096, move |samples| {
-            save_psd_png(&samples, 20000.0, "02 After polyphase decimate (20 kHz)", "02_rds_after_decimate.png");
-        })
-        .resample(resamp_taps, RDS_UPSAMPLE, RDS_SECOND_DECIMATE)
-        .spy(4096, move |samples| {
-            save_psd_png(&samples, 19000.0, "03 After polyphase resample (19 kHz)", "03_rds_after_resample.png");
-        })
-        .dsp_filter(matched_filter)
-        .spy(1000, |samples| {
-            let re: Vec<f32> = samples.iter().map(|s| s.re).collect();
-            let im: Vec<f32> = samples.iter().map(|s| s.im).collect();
-            let mut plot = Plot::new();
-            use plotly::common::Mode;
-            plot.add_trace(Scatter::new(re, im).mode(Mode::Markers).name("IQ"));
-            plot.set_layout(plotly::Layout::new().title("04 Constellation after matched filter (19 kHz)"));
-            plot.write_image("04_rds_constellation_pre.png", plotly::ImageFormat::PNG, 600, 600, 1.0);
-            eprintln!("Saved: 04_rds_constellation_pre.png");
-        })
-        .complex_clock_recover(bit_rate, RDS_FS, &config.gardner)
-        .dsp_filter(agc::Agc::new(bit_rate, &rds_config::AgcConfig {
-            bandwidth_hz: config.agc.bandwidth_hz,
-            target_rms: 1.0,
-        }))
-        .spy(1100, |samples| {
-            let tail = &samples[100..];
-            let re: Vec<f32> = tail.iter().map(|s| s.re).collect();
-            let im: Vec<f32> = tail.iter().map(|s| s.im).collect();
-            let mut plot = Plot::new();
-            use plotly::common::Mode;
-            plot.add_trace(Scatter::new(re, im).mode(Mode::Markers).name("IQ"));
-            plot.set_layout(plotly::Layout::new().title("05 Constellation after Gardner+AGC (symbol rate)"));
-            plot.write_image("05_rds_costas_output.png", plotly::ImageFormat::PNG, 600, 600, 1.0);
-            eprintln!("Saved: 05_rds_costas_output.png");
-        })
-        // Differential phase detection: eliminates carrier phase/frequency entirely
-        .scan(Complex32::new(1.0, 0.0), |prev, sample: Complex32| {
-            let product = sample * prev.conj();
-            *prev = sample;
-            // Re(product) > 0 → same cluster → diff_bit=0, < 0 → opposite → diff_bit=1
-            Some(if product.re > 0.0 { 0u8 } else { 1u8 })
-        })
-        .rds_block_sync(&config.sync, debug);
-
-    let mut decoder = rds_block_sync::RdsDecoder::new();
-    let mut display = rds_block_sync::RdsDisplay::new();
-    let start_time = std::time::Instant::now();
-
-    while !done.load(atomic::Ordering::SeqCst) {
-        match groups.next() {
-            Some(rds_block_sync::SyncEvent::Group(group)) => {
-                let state = decoder.process(&group);
-                let elapsed = start_time.elapsed().as_secs_f64();
-
-                if metrics {
-                    let pi_str = if group.pi_code != 0 {
-                        format!("{:04X}", group.pi_code)
-                    } else {
-                        "0000".to_string()
-                    };
-                    eprintln!("RDSMETRIC {{\"t\":{:.3},\"bler\":{:.4},\"groups\":{},\"pi\":\"{}\"}}",
-                        elapsed, group.rolling_bler, state.groups_decoded, pi_str);
-                }
-
-                if debug {
-                    let version_str = if group.version { "B" } else { "A" };
-                    eprintln!("RDS Group {}{}: PI=0x{:04X} [{:04X} {:04X} {:04X} {:04X}]  BLER={:.1}%",
-                        group.group_type, version_str, group.pi_code,
-                        group.blocks[0], group.blocks[1], group.blocks[2], group.blocks[3],
-                        group.rolling_bler * 100.0);
-                    eprintln!("  PS=\"{}\"  RT=\"{}\"", state.ps, state.rt);
-                } else if !metrics {
-                    display.set_synced(true);
-                    display.render(&state);
-                }
-            }
-            Some(rds_block_sync::SyncEvent::Locked) => {
-                if !metrics && !debug {
-                    display.set_synced(true);
-                    display.render(&decoder.display_state());
-                }
-            }
-            Some(rds_block_sync::SyncEvent::LostSync) => {
-                if !metrics && !debug {
-                    display.set_synced(false);
-                    display.render(&decoder.display_state());
-                }
-            }
-            Some(rds_block_sync::SyncEvent::Searching) => {
-                if !metrics && !debug {
-                    display.set_synced(false);
-                    display.render(&decoder.display_state());
-                }
-            }
-            None => break,
-        }
     }
 
     if metrics {
@@ -976,7 +1138,7 @@ fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::Ato
     let done_ref = done_sig.clone();
     let rds_config2 = rds_config;
     let rds_thread = std::thread::spawn(move || {
-        rds_pipeline(&done_ref, rds_rx, wfm_fs, &rds_config2, rds_debug, rds_metrics);
+        rds_pipeline_v4(&done_ref, rds_rx, wfm_fs, &rds_config2, rds_debug, rds_metrics);
     });
 
     // Main thread: Audio consumer (downsample + interleave + output)
