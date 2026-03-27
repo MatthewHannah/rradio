@@ -527,6 +527,9 @@ fn rds_pipeline_v4(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>,
             None => break,
         };
 
+        if constellation.len() == 0 {
+            eprintln!("First symbol produced: re={:.4} im={:.4}", sym.re, sym.im);
+        }
         if constellation.len() < 20000 {
             constellation.push(sym);
             if constellation.len() == 20000 {
@@ -583,10 +586,10 @@ fn rds_pipeline_v4(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>,
         }
     }
 
-    plot_re(&rds.debug.agc_hist[101..], "AGC history");
-    plot_re(&rds.debug.freq_avg_hist, "Costas frequency adjustment history");
-    plot_re(&rds.debug.phase_adj_hist, "Costas phase adjustment history");
-    save_psd_png(&rds.debug.filtered_samples_hist, 171e3/24.0, "Filtered Samples", "filt.png");
+    // plot_re(&rds.debug.agc_hist[101..], "AGC history");
+    // plot_re(&rds.debug.freq_avg_hist, "Costas frequency adjustment history");
+    // plot_re(&rds.debug.phase_adj_hist, "Costas phase adjustment history");
+    // save_psd_png(&rds.debug.filtered_samples_hist, 171e3/24.0, "Filtered Samples", "filt.png");
 
     if metrics {
         let elapsed = start_time.elapsed().as_secs_f64();

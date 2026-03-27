@@ -7,7 +7,14 @@ pub struct PiLoopFilter {
     max_integrator: f32,
 }
 
-fn calculate_gains(loop_bw: f32, damping: f32, k: f32) -> (f32, f32) {
+pub fn calculate_gains(loop_bw: f32, damping: f32, k: f32) -> (f32, f32) {
+    // Compute in f64 to avoid catastrophic cancellation when ζ×ωn_norm is small.
+    // The subtraction 1 - k1×(sinh+cos) loses all significance in f32 for
+    // ωn_norm < ~0.001 (typical for timing loops with Bn→ωn conversion).
+    let loop_bw = loop_bw as f64;
+    let damping = damping as f64;
+    let k = k as f64;
+
     let loop_bw_times_damping = loop_bw * damping;
 
     let k0 = 2.0 / k;
@@ -25,7 +32,7 @@ fn calculate_gains(loop_bw: f32, damping: f32, k: f32) -> (f32, f32) {
     let alpha = k0 * k1 * sinh_loopbw_damping;
     let beta = k0 * (1.0 - k1 * (sinh_loopbw_damping + cos_adjustment));
 
-    (alpha, beta)
+    (alpha as f32, beta as f32)
 }
 
 impl PiLoopFilter {

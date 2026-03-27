@@ -2,13 +2,73 @@ use num_complex::Complex32;
 
 use crate::pi_loop::PiLoopFilter;
 
-// Timing loop filter mechanics derived from GNU Radio clock_tracking_loop
-struct TimingLoop {
-    pi_loop: PiLoopFilter,
+/// Power-averaging AGC targeting unit RMS amplitude.
+/// Initial acquisition phase accumulates samples to estimate gain,
+/// then switches to exponential power averaging.
+pub struct PowerAgc {
+    rate: f32,
+    target_power: f32,
+    avg_power: f32,
+    pub gain: f32,
+    max_gain: f32,
+    // Acquisition phase
+    acquired: bool,
+    acq_accum: f32,
+    acq_count: usize,
+    acq_threshold: usize,
+}
 
-    // accumulated resampler period (in input sample periods)
-    resampler_period: f32,
-    interp_factor: f32,
+impl PowerAgc {
+    pub fn new(rate: f32, target_rms: f32, max_gain: f32, acq_samples: usize) -> Self {
+        PowerAgc {
+            rate,
+            target_power: target_rms * target_rms,
+            avg_power: 1.0,
+            gain: 1.0,
+            max_gain,
+            acquired: false,
+            acq_accum: 0.0,
+            acq_count: 0,
+            acq_threshold: acq_samples,
+        }
+    }
+
+    /// Process one sample. During acquisition, passes through unchanged
+    /// while estimating power. After acquisition, applies and tracks gain.
+    pub fn process(&mut self, sample: Complex32) -> Complex32 {
+        if !self.acquired {
+            let power = sample.re * sample.re + sample.im * sample.im;
+            self.acq_accum += power;
+            self.acq_count += 1;
+            if self.acq_count >= self.acq_threshold {
+                self.avg_power = self.acq_accum / self.acq_count as f32;
+                if self.avg_power > 1e-20 {
+                    self.gain = (self.target_power / self.avg_power).sqrt().min(self.max_gain);
+                }
+                self.acquired = true;
+            }
+            sample // pass through during acquisition
+        } else {
+            let power = sample.re * sample.re + sample.im * sample.im;
+            self.avg_power = (1.0 - self.rate) * self.avg_power + self.rate * power;
+            if self.avg_power > 1e-20 {
+                self.gain = (self.target_power / self.avg_power).sqrt().min(self.max_gain);
+            }
+            sample * self.gain
+        }
+    }
+}
+
+// Timing loop: accumulator-based, matches Python bpsk_pfb_receiver.py TimingLoop.
+// Accumulator [0, nfilters) selects polyphase arm directly.
+// PI corrections shift the arm position; wraps trigger skip/slip.
+struct TimingLoop {
+    alpha: f32,
+    beta: f32,
+    acc: f32,          // accumulator [0, nfilters)
+    rate: f32,         // frequency correction (acc units per chip)
+    nfilters: f32,
+    max_rate_dev: f32,
 
     // coarse and fine adjustments for resampling
     coarse: isize,
@@ -16,36 +76,37 @@ struct TimingLoop {
 }
 
 impl TimingLoop {
-    fn new(loop_bw: f32, damping: f32, k_ted: f32, expected_period: f32, max_deviation: f32, interp_factor: f32) -> Self {
+    fn new(loop_bw: f32, damping: f32, k_ted: f32, nfilters: f32, max_rate_dev: f32) -> Self {
+        let (alpha, beta) = crate::pi_loop::calculate_gains(loop_bw, damping, k_ted);
         TimingLoop {
-            pi_loop: PiLoopFilter::new(loop_bw, damping, k_ted, expected_period - max_deviation, expected_period + max_deviation),
-            resampler_period: 0.0,
-            interp_factor,
+            alpha,
+            beta,
+            acc: nfilters / 2.0,   // start at middle arm
+            rate: 0.0,
+            nfilters,
+            max_rate_dev,
             coarse: 0,
-            fine: 0,
+            fine: (nfilters / 2.0) as usize,
         }
     }
 
     fn advance(&mut self, error: f32) {
-        // PI loop adjustments
-        let mut instantaneous_period = self.pi_loop.advance(error);
+        // PI filter: correction-based (not period-based)
+        self.rate += self.beta * error;
+        self.rate = self.rate.clamp(-self.max_rate_dev, self.max_rate_dev);
+        self.acc += self.rate + self.alpha * error;
 
-        if instantaneous_period < 0.0 {
-            instantaneous_period = self.pi_loop.integrator; // bad condition, reset ourselves to expected period
-        }
-
-        // coarse+interpolator adjustments
+        // Skip/slip when accumulator wraps
         self.coarse = 0;
-        self.resampler_period += instantaneous_period;
-        while self.resampler_period >= self.interp_factor {
-            self.resampler_period -= self.interp_factor;
+        while self.acc >= self.nfilters {
+            self.acc -= self.nfilters;
             self.coarse += 1;
         }
-        while self.resampler_period <= 0.0 {
-            self.resampler_period += self.interp_factor;
+        while self.acc < 0.0 {
+            self.acc += self.nfilters;
             self.coarse -= 1;
         }
-        self.fine = (self.resampler_period.round() as usize).clamp(0, self.interp_factor as usize - 1);
+        self.fine = (self.acc as usize).clamp(0, self.nfilters as usize - 1);
     }
 }
 
@@ -57,6 +118,7 @@ pub struct SymbolSync {
     filt: Vec<Vec<f32>>,
     dfilt: Vec<Vec<f32>>,
     timing_loop: TimingLoop,
+    pub agc: PowerAgc,
 }
 
 /// Create polyphase filter bank from prototype filter
@@ -95,21 +157,24 @@ fn filter_eval(circ: &[Complex32], oldest: usize, coeffs: &[f32]) -> Complex32 {
 }
 
 impl SymbolSync {
-    pub fn new(prototype_filt: Vec<f32>, samples_per_symbol: usize, max_deviation: f32, interp_factor: usize, loop_bw: f32, damping: f32, k_ted: f32) -> Self {
+    pub fn new(prototype_filt: Vec<f32>, samples_per_symbol: usize, _max_deviation: f32, interp_factor: usize, loop_bw: f32, damping: f32, k_ted: f32) -> Self {
         let mut derivative_filt = differentiate(&prototype_filt);
         derivative_filt.iter_mut().for_each(|x| *x *= interp_factor as f32); // scale prototype for interpolation
 
         let filt = polyphase_bank(&prototype_filt, interp_factor);
         let dfilt = polyphase_bank(&derivative_filt, interp_factor);
 
+        let max_rate_dev = interp_factor as f32 * 0.001;
+
         SymbolSync {
-            circbuf: vec![Complex32::new(0.0, 0.0); filt[0].len() * 2], // provides contiguous access to samples
+            circbuf: vec![Complex32::new(0.0, 0.0); filt[0].len() * 2],
             head: 0,
             circ_len: filt[0].len(),
             samples_per_symbol,
             filt,
             dfilt,
-            timing_loop: TimingLoop::new(loop_bw, damping, k_ted, samples_per_symbol as f32, max_deviation, interp_factor as f32),
+            timing_loop: TimingLoop::new(loop_bw, damping, k_ted, interp_factor as f32, max_rate_dev),
+            agc: PowerAgc::new(0.01, 1.0, 1e5, 100),
         }
     }
 
@@ -125,8 +190,13 @@ impl SymbolSync {
         let arm_idx = self.timing_loop.fine;
         let sym_estimate = filter_eval(&self.circbuf, self.head, &self.filt[arm_idx]);
         let sym_derivative = filter_eval(&self.circbuf, self.head, &self.dfilt[arm_idx]);
-        let error = SymbolSync::compute_error(sym_estimate, sym_derivative);
 
+        // AGC: normalize MF output to unit power, apply same gain to dMF.
+        // This ensures TED sees unit-power signals (matching K_TED calibration).
+        let sym_estimate = self.agc.process(sym_estimate);
+        let sym_derivative = sym_derivative * self.agc.gain;
+
+        let error = SymbolSync::compute_error(sym_estimate, sym_derivative);
         self.timing_loop.advance(error);
 
         Some(sym_estimate)
