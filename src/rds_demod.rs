@@ -56,12 +56,12 @@ const R_CHIP: f32 = 2375.0;
 const TOTAL_DECIMATE: f32 = 72.0; // PRE_DECIMATE(24) × SPS(3)
 
 // Costas carrier recovery (post-MF, chip rate)
-const COSTAS_BN_HZ: f32 = 5.0;
+const COSTAS_BN_HZ: f32 = 30.0;
 const COSTAS_DAMPING: f32 = 0.707;
 const COSTAS_K_DET: f32 = 0.761594; // tanh(1): soft-decision tanh(I)·Q detector at unit power
 
 // Symbol timing recovery (PFB + ML TED)
-const TIMING_BN_HZ: f32 = 0.5;
+const TIMING_BN_HZ: f32 = 5.0;
 const TIMING_DAMPING: f32 = 1.0;    // critically damped
 const TIMING_K_TED: f32 = 0.160671; // ML TED S-curve slope per acc unit (post-AGC, from filter)
 const TIMING_NFILTERS: usize = 12;
