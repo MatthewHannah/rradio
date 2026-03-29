@@ -117,14 +117,24 @@ pub struct SymbolSync {
     inst_rate: f32,     // phase advance per input sample (= nfilters / inst_period)
 
     // PI loop filter (period-based, clock_tracking_loop style)
-    avg_period: f32,    // integrator: average period in input samples
-    inst_period: f32,   // instantaneous period (avg + proportional correction)
+    pub avg_period: f32,    // integrator: average period in input samples
+    pub inst_period: f32,   // instantaneous period (avg + proportional correction)
     alpha: f32,         // proportional gain
     beta: f32,          // integral gain
     min_period: f32,
     max_period: f32,
 
+    // Optional extra pole (Type II Order 3)
+    pole_b0: f32,
+    pole_a1: f32,
+    pole_state: f32,
+
     pub agc: PowerAgc,
+
+    // Diagnostic: exponential average of input sample power (pre-MF)
+    pub input_power_avg: f32,
+    // Diagnostic: pre-AGC matched filter output power
+    pub pre_agc_mf_power: f32,
 }
 
 impl SymbolSync {
@@ -137,8 +147,19 @@ impl SymbolSync {
     /// * `loop_bw` — ωn_norm (normalized natural frequency at chip rate)
     /// * `damping` — ζ
     /// * `k_ted` — TED gain per input sample of timing offset (= K_TED_acc × nfilters)
+    /// * `pole_b0`, `pole_a1` — extra filtering pole coefficients (1.0, 0.0 to disable)
     pub fn new(prototype_filt: Vec<f32>, sps: usize, max_period_deviation: f32,
-               nfilters: usize, loop_bw: f32, damping: f32, k_ted_per_sample: f32) -> Self {
+               nfilters: usize, loop_bw: f32, damping: f32, k_ted_per_sample: f32,
+               pole_b0: f32, pole_a1: f32) -> Self {
+        let (alpha, beta) = crate::pi_loop::calculate_gains(loop_bw, damping, k_ted_per_sample);
+        Self::new_raw(prototype_filt, sps, max_period_deviation, nfilters,
+                      alpha, beta, pole_b0, pole_a1)
+    }
+
+    /// Create with raw loop filter coefficients (no Bn/ζ/K derivation).
+    pub fn new_raw(prototype_filt: Vec<f32>, sps: usize, max_period_deviation: f32,
+                   nfilters: usize, alpha: f32, beta: f32,
+                   pole_b0: f32, pole_a1: f32) -> Self {
         let mut derivative_filt = differentiate(&prototype_filt);
         derivative_filt.iter_mut().for_each(|x| *x *= nfilters as f32);
 
@@ -146,7 +167,6 @@ impl SymbolSync {
         let dfilt = polyphase_bank(&derivative_filt, nfilters);
 
         let nominal_period = sps as f32;
-        let (alpha, beta) = crate::pi_loop::calculate_gains(loop_bw, damping, k_ted_per_sample);
 
         SymbolSync {
             circbuf: vec![Complex32::new(0.0, 0.0); filt[0].len() * 2],
@@ -165,7 +185,13 @@ impl SymbolSync {
             min_period: nominal_period - max_period_deviation,
             max_period: nominal_period + max_period_deviation,
 
+            pole_b0,
+            pole_a1,
+            pole_state: 0.0,
+
             agc: PowerAgc::new(0.01, 1.0, 1e5, 100),
+            input_power_avg: 0.0,
+            pre_agc_mf_power: 0.0,
         }
     }
 
@@ -174,6 +200,10 @@ impl SymbolSync {
     pub fn next(&mut self, iter: &mut impl Iterator<Item = Complex32>) -> Option<Complex32> {
         loop {
             let sample = iter.next()?;
+
+            // Track input power (exponential average, rate ≈ 0.001)
+            let sp = sample.re * sample.re + sample.im * sample.im;
+            self.input_power_avg = 0.999 * self.input_power_avg + 0.001 * sp;
 
             // Push into circular delay line
             self.circbuf[self.head] = sample;
@@ -194,17 +224,26 @@ impl SymbolSync {
                 let mf_out = filter_eval(&self.circbuf, self.head, &self.filt[arm]);
                 let dmf_out = filter_eval(&self.circbuf, self.head, &self.dfilt[arm]);
 
+                // Track pre-AGC MF power (exponential avg at chip rate)
+                let pre_agc_p = mf_out.re * mf_out.re + mf_out.im * mf_out.im;
+                self.pre_agc_mf_power = 0.99 * self.pre_agc_mf_power + 0.01 * pre_agc_p;
+
                 // AGC: normalize to unit power, apply same gain to dMF
                 let mf_out = self.agc.process(mf_out);
                 let dmf_out = dmf_out * self.agc.gain;
 
-                // ML TED: e = Re{conj(MF) · dMF} / 2
-                let error = (mf_out.conj() * dmf_out).re / 2.0;
+                // ML TED: e = Re{conj(MF) · dMF} / 2, clamped to ±1
+                // (matches liquid-dsp: prevents large spikes from destabilizing the loop)
+                let error = ((mf_out.conj() * dmf_out).re / 2.0).clamp(-1.0, 1.0);
+
+                // Extra pole: IIR lowpass on error (passthrough when b0=1, a1=0)
+                let filtered = self.pole_b0 * error + self.pole_a1 * self.pole_state;
+                self.pole_state = filtered;
 
                 // PI loop filter (period-based, clock_tracking_loop style)
-                self.avg_period += self.beta * error;
+                self.avg_period += self.beta * filtered;
                 self.avg_period = self.avg_period.clamp(self.min_period, self.max_period);
-                self.inst_period = self.avg_period + self.alpha * error;
+                self.inst_period = self.avg_period + self.alpha * filtered;
                 if self.inst_period <= 0.0 {
                     self.inst_period = self.avg_period;
                 }

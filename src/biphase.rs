@@ -12,6 +12,12 @@ pub struct BiphaseDecoder {
     clock_history: [f32; 128],
     clock: usize,
     clock_polarity: usize,
+
+    // Diagnostics: last computed energy sums and current state
+    pub last_even_sum: f32,
+    pub last_odd_sum: f32,
+    pub polarity: usize,
+    pub biphase_energy: f32,  // current chip's |biphase.re|
 }
 
 /// Result from pushing a PSK symbol — may or may not produce a bit.
@@ -27,6 +33,10 @@ impl BiphaseDecoder {
             clock_history: [0.0; 128],
             clock: 0,
             clock_polarity: 0,
+            last_even_sum: 0.0,
+            last_odd_sum: 0.0,
+            polarity: 0,
+            biphase_energy: 0.0,
         }
     }
 
@@ -37,9 +47,10 @@ impl BiphaseDecoder {
         let bit = biphase_symbol.re >= 0.0;
         let has_value = (self.clock % 2) == self.clock_polarity;
         self.prev_psk_symbol = psk_symbol;
+        self.biphase_energy = biphase_symbol.re.abs();
 
         // Track which alignment (even/odd) has more energy
-        self.clock_history[self.clock] = biphase_symbol.re.abs();
+        self.clock_history[self.clock] = self.biphase_energy;
         self.clock += 1;
 
         // Every 128 PSK symbols, check whether to shift the decoding window
@@ -56,7 +67,9 @@ impl BiphaseDecoder {
             } else if odd_sum > even_sum {
                 self.clock_polarity = 1;
             }
-            // else unchanged
+            self.last_even_sum = even_sum;
+            self.last_odd_sum = odd_sum;
+            self.polarity = self.clock_polarity;
 
             self.clock_history = [0.0; 128];
             self.clock = 0;

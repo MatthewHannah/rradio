@@ -216,8 +216,12 @@ impl<I: Iterator<Item = u8>> RdsBlockSync<I> {
 
                 // Check syndrome against all offset words
                 let syn = syndrome(self.shift_reg);
-                for (idx, &(offset, _name)) in OFFSETS.iter().enumerate() {
+                for (idx, &(offset, name)) in OFFSETS.iter().enumerate() {
                     if syn == offset {
+                        if self.debug {
+                            eprintln!("RDS search: FOUND {} at bit {} (syn=0x{:03X})",
+                                name, self.bit_count, syn);
+                        }
                         let data = (self.shift_reg >> 10) as u16;
                         let block_pos = BLOCK_FOR_OFFSET[idx];
                         self.blocks = [0; 4];
@@ -253,6 +257,10 @@ impl<I: Iterator<Item = u8>> RdsBlockSync<I> {
                 let expected = *expected_offsets;
 
                 if let Some((idx, data)) = check_block(self.shift_reg, expected, 0) {
+                    if self.debug {
+                        eprintln!("RDS tentative: GOOD block {} ({}/{} consecutive) at bit {}",
+                            OFFSETS[idx].1, self.consecutive_good + 1, SYNC_THRESHOLD, self.bit_count);
+                    }
                     let block_pos = BLOCK_FOR_OFFSET[idx];
                     self.blocks[block_pos] = data;
                     self.block_idx = block_pos;
@@ -281,6 +289,13 @@ impl<I: Iterator<Item = u8>> RdsBlockSync<I> {
                     }
                     return group;
                 } else {
+                    if self.debug {
+                        let syn = syndrome(self.shift_reg);
+                        eprintln!("RDS tentative: FAIL at bit {} (syn=0x{:03X}, expected {:?}, had {} good)",
+                            self.bit_count, syn,
+                            expected.iter().map(|&i| OFFSETS[i].1).collect::<Vec<_>>(),
+                            self.consecutive_good);
+                    }
                     self.state = SyncState::Searching;
                     self.consecutive_good = 0;
                     None
@@ -295,6 +310,7 @@ impl<I: Iterator<Item = u8>> RdsBlockSync<I> {
                 self.bits_in_block = 0;
                 let expected = expected_next_offsets(self.current_offset_idx);
 
+                // Check with error correction for data recovery
                 if let Some((idx, data)) = check_block(self.shift_reg, expected, self.crc_max_bits) {
                     self.record_block(true);
                     let block_pos = BLOCK_FOR_OFFSET[idx];
@@ -302,7 +318,13 @@ impl<I: Iterator<Item = u8>> RdsBlockSync<I> {
                     self.block_idx = block_pos;
                     self.current_offset_idx = idx;
                     self.consecutive_good += 1;
-                    self.consecutive_bad = 0;
+
+                    // Track sync health using EXACT CRC only (no error correction).
+                    // Error-corrected blocks that aren't exact matches indicate
+                    // degraded signal; only exact matches reset the bad counter.
+                    if check_block(self.shift_reg, expected, 0).is_some() {
+                        self.consecutive_bad = 0;
+                    }
 
                     if block_pos == 3 {
                         return Some(SyncEvent::Group(self.emit_group()));
@@ -319,8 +341,8 @@ impl<I: Iterator<Item = u8>> RdsBlockSync<I> {
 
                     if self.consecutive_bad >= self.loss_threshold {
                         if self.debug {
-                            eprintln!("RDS sync: LOST after {} consecutive bad blocks (total groups: {})",
-                                self.consecutive_bad, self.synced_groups);
+                            eprintln!("RDS sync: LOST after {} consecutive bad blocks at bit {} (total groups: {})",
+                                self.consecutive_bad, self.bit_count, self.synced_groups);
                         }
                         self.state = SyncState::Searching;
                         self.consecutive_good = 0;

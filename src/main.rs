@@ -488,7 +488,7 @@ fn write_wav<I>(samples: I, path: &str, fs: u32) where I: Iterator<Item = f32> {
     eprintln!("Wrote {} samples ({:.1}s) to {}", count, count as f64 / (fs as f64 * 2.0), path);
 }
 
-fn rds_pipeline_v4(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wfm_fs: f32, config: &rds_config::RdsConfig, debug: bool, metrics: bool) {
+fn rds_pipeline_v4(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wfm_fs: f32, config: &rds_config::RdsConfig, debug: bool, metrics: bool, diag_path: Option<&str>) {
     let iterable = buffer::RecvBufIter::new(rds_rx);
 
     let stage1_target_fs: f32 = 57e3 * 3.0;
@@ -517,15 +517,52 @@ fn rds_pipeline_v4(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>,
     let mut constellation = vec![];
     let mut constellation_num = 0;
 
+    // Diagnostic output: per-chip CSV of loop internals
+    let mut diag_writer = diag_path.map(|path| {
+        let mut w = std::io::BufWriter::new(std::fs::File::create(path).expect("Failed to create diag file"));
+        use std::io::Write;
+        writeln!(w, "chip,mf_re,mf_im,costas_phase_err,costas_freq,timing_period,timing_avg_period,agc_gain,input_power,ds_power,biphase_bit,data_bit,biphase_energy,even_sum,odd_sum,polarity").unwrap();
+        w
+    });
+    let mut chip_idx: u64 = 0;
+
     loop {
         if done.load(atomic::Ordering::SeqCst) {
             break;
         }
 
-        let sym = match rds.next(&mut base) {
-            Some(s) => s,
-            None => break,
+        let (sym, diag) = if diag_writer.is_some() {
+            match rds.next_diag(&mut base) {
+                Some((s, d)) => (s, Some(d)),
+                None => break,
+            }
+        } else {
+            match rds.next(&mut base) {
+                Some(s) => (s, None),
+                None => break,
+            }
         };
+
+        // Biphase + delta decode (needed before diag write)
+        let result = biphase_decoder.push(sym);
+        let data_bit = if result.has_value {
+            Some(delta_decoder.decode(result.bit))
+        } else {
+            None
+        };
+
+        if let (Some(w), Some(d)) = (&mut diag_writer, diag) {
+            use std::io::Write;
+            let biphase_bit: i8 = if result.has_value { if result.bit { 1 } else { 0 } } else { -1 };
+            let data_bit_val: i8 = data_bit.map(|b| b as i8).unwrap_or(-1);
+            writeln!(w, "{},{:.6},{:.6},{:.6},{:.8},{:.6},{:.6},{:.4},{:.8},{:.8},{},{},{:.6},{:.4},{:.4},{}",
+                chip_idx, d.mf_re, d.mf_im, d.costas_phase_err, d.costas_freq,
+                d.timing_period, d.timing_avg_period, d.agc_gain, d.input_power, d.ds_power,
+                biphase_bit, data_bit_val,
+                biphase_decoder.biphase_energy, biphase_decoder.last_even_sum,
+                biphase_decoder.last_odd_sum, biphase_decoder.polarity).unwrap();
+        }
+        chip_idx += 1;
 
         if false && constellation.len() < 20000 {
             constellation.push(sym);
@@ -550,10 +587,8 @@ fn rds_pipeline_v4(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>,
             }
         }
 
-        let result = biphase_decoder.push(sym);
-        if result.has_value {
-            let data_bit = delta_decoder.decode(result.bit);
-
+        // Block sync uses already-decoded biphase/delta from above
+        if let Some(data_bit) = data_bit {
             if let Some(event) = block_sync.push_bit(data_bit as u8) {
                 match event {
                     rds_block_sync::SyncEvent::Group(group) => {
@@ -1010,7 +1045,7 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wf
     }
 }
 
-fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::AtomicBool>, obs_settings: AudioPipelineObservationSettings, rds_debug: bool, rds_metrics: bool, record_path: Option<String>, rds_config: rds_config::RdsConfig, mpx_path: Option<String>) {
+fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::AtomicBool>, obs_settings: AudioPipelineObservationSettings, rds_debug: bool, rds_metrics: bool, record_path: Option<String>, rds_config: rds_config::RdsConfig, mpx_path: Option<String>, diag_path: Option<String>) {
     let fs = match &iq_source {
         IqSource::Pluto { config } => config.fs,
         IqSource::Soapy { config } => config.fs,
@@ -1138,7 +1173,13 @@ fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::Ato
     let done_ref = done_sig.clone();
     let rds_config2 = rds_config;
     let rds_thread = std::thread::spawn(move || {
-        rds_pipeline_v4(&done_ref, rds_rx, wfm_fs, &rds_config2, rds_debug, rds_metrics);
+        // Toggle: use rds_pipeline (redsea) or rds_pipeline_v4 (ours)
+        let use_redsea = std::env::var("USE_REDSEA").is_ok();
+        if use_redsea {
+            rds_pipeline(&done_ref, rds_rx, wfm_fs, &rds_config2, rds_debug, rds_metrics);
+        } else {
+            rds_pipeline_v4(&done_ref, rds_rx, wfm_fs, &rds_config2, rds_debug, rds_metrics, diag_path.as_deref());
+        }
     });
 
     // Main thread: Audio consumer (downsample + interleave + output)
@@ -1188,6 +1229,7 @@ fn main() {
     let mut rds_config_path: Option<String> = None;
     let mut record_path: Option<String> = None;
     let mut mpx_path: Option<String> = None;
+    let mut diag_path: Option<String> = None;
     let mut duration_secs: Option<f64> = None;
     let mut i = 0;
     while i < args.len() {
@@ -1208,6 +1250,9 @@ fn main() {
             i += 2;
         } else if args[i] == "--mpx" {
             mpx_path = Some(args.get(i + 1).expect("Usage: --mpx <path.wav>").clone());
+            i += 2;
+        } else if args[i] == "--diag" {
+            diag_path = Some(args.get(i + 1).expect("Usage: --diag <path.csv>").clone());
             i += 2;
         } else if args[i] == "--duration" {
             duration_secs = Some(args.get(i + 1).expect("Usage: --duration <seconds>")
@@ -1250,7 +1295,7 @@ fn main() {
                 * 1e3;
             let streamer = sigmf::SigmfStreamer::new(path).expect("Failed to open SigMF file");
             let source = IqSource::Sigmf { streamer, tune_offset };
-            run(source, audio_output, done_sig, obs_settings, rds_debug, rds_metrics, record_path, rds_config.clone(), mpx_path.clone());
+            run(source, audio_output, done_sig, obs_settings, rds_debug, rds_metrics, record_path, rds_config.clone(), mpx_path.clone(), diag_path.clone());
         }
         Some("soapy") => {
             let filter = pos.next().expect("Usage: rradio soapy <filter> [station_mhz]");
@@ -1264,7 +1309,7 @@ fn main() {
                 bw: 600e6,
                 fs: 2.4e6,
             };
-            run(IqSource::Soapy { config }, audio_output, done_sig, obs_settings, rds_debug, rds_metrics, record_path, rds_config.clone(), mpx_path.clone());
+            run(IqSource::Soapy { config }, audio_output, done_sig, obs_settings, rds_debug, rds_metrics, record_path, rds_config.clone(), mpx_path.clone(), diag_path.clone());
         }
         Some("pluto") => {
             let station: f32 = pos.next()
@@ -1277,7 +1322,7 @@ fn main() {
                 bw: 600e6,
                 fs: 2.4e6,
             };
-            run(IqSource::Pluto { config }, audio_output, done_sig, obs_settings, rds_debug, rds_metrics, record_path, rds_config.clone(), mpx_path.clone());
+            run(IqSource::Pluto { config }, audio_output, done_sig, obs_settings, rds_debug, rds_metrics, record_path, rds_config.clone(), mpx_path.clone(), diag_path.clone());
         }
         _ => {
             eprintln!("Usage: rradio <source> [options] [--wav <output.wav>]");
