@@ -131,6 +131,10 @@ pub struct SymbolSync {
 
     pub agc: PowerAgc,
 
+    // Number of input samples consumed for the last chip (nominal = sps)
+    pub last_samples_consumed: usize,
+    pub nominal_sps: usize,
+
     // Diagnostic: exponential average of input sample power (pre-MF)
     pub input_power_avg: f32,
     // Diagnostic: pre-AGC matched filter output power
@@ -190,6 +194,8 @@ impl SymbolSync {
             pole_state: 0.0,
 
             agc: PowerAgc::new(0.01, 1.0, 1e5, 100),
+            last_samples_consumed: sps,
+            nominal_sps: sps,
             input_power_avg: 0.0,
             pre_agc_mf_power: 0.0,
         }
@@ -198,8 +204,10 @@ impl SymbolSync {
     /// Pull samples from the iterator until a chip boundary fires.
     /// Returns the AGC-normalized matched filter output, or None on end-of-stream.
     pub fn next(&mut self, iter: &mut impl Iterator<Item = Complex32>) -> Option<Complex32> {
+        let mut samples_consumed: usize = 0;
         loop {
             let sample = iter.next()?;
+            samples_consumed += 1;
 
             // Track input power (exponential average, rate ≈ 0.001)
             let sp = sample.re * sample.re + sample.im * sample.im;
@@ -251,6 +259,7 @@ impl SymbolSync {
                 // Update phase advance rate for next chip interval
                 self.inst_rate = self.nfilters as f32 / self.inst_period;
 
+                self.last_samples_consumed = samples_consumed;
                 return Some(mf_out);
             }
         }

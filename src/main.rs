@@ -514,14 +514,14 @@ fn rds_pipeline_v4(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>,
     let mut display = rds_block_sync::RdsDisplay::new();
     let start_time = std::time::Instant::now();
 
-    let mut constellation = vec![];
+    let mut constellation: Vec<Complex32> = vec![];
     let mut constellation_num = 0;
 
     // Diagnostic output: per-chip CSV of loop internals
     let mut diag_writer = diag_path.map(|path| {
         let mut w = std::io::BufWriter::new(std::fs::File::create(path).expect("Failed to create diag file"));
         use std::io::Write;
-        writeln!(w, "chip,mf_re,mf_im,costas_phase_err,costas_freq,timing_period,timing_avg_period,agc_gain,input_power,ds_power,biphase_bit,data_bit,biphase_energy,even_sum,odd_sum,polarity").unwrap();
+        writeln!(w, "chip,mf_re,mf_im,costas_phase_err,costas_freq,timing_period,timing_avg_period,agc_gain,input_power,ds_power,bit,data_bit").unwrap();
         w
     });
     let mut chip_idx: u64 = 0;
@@ -543,53 +543,23 @@ fn rds_pipeline_v4(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>,
             }
         };
 
-        // Biphase + delta decode (needed before diag write)
-        let result = biphase_decoder.push(sym);
-        let data_bit = if result.has_value {
-            Some(delta_decoder.decode(result.bit))
-        } else {
-            None
-        };
+        // Manchester MF directly outputs bits — hard decision on I, then delta decode
+        let bit = sym.re >= 0.0;
+        let data_bit = delta_decoder.decode(bit);
 
         if let (Some(w), Some(d)) = (&mut diag_writer, diag) {
             use std::io::Write;
-            let biphase_bit: i8 = if result.has_value { if result.bit { 1 } else { 0 } } else { -1 };
-            let data_bit_val: i8 = data_bit.map(|b| b as i8).unwrap_or(-1);
-            writeln!(w, "{},{:.6},{:.6},{:.6},{:.8},{:.6},{:.6},{:.4},{:.8},{:.8},{},{},{:.6},{:.4},{:.4},{}",
+            let bit_val: i8 = if bit { 1 } else { 0 };
+            let data_bit_val: i8 = data_bit as i8;
+            writeln!(w, "{},{:.6},{:.6},{:.6},{:.8},{:.6},{:.6},{:.4},{:.8},{:.8},{},{}",
                 chip_idx, d.mf_re, d.mf_im, d.costas_phase_err, d.costas_freq,
                 d.timing_period, d.timing_avg_period, d.agc_gain, d.input_power, d.ds_power,
-                biphase_bit, data_bit_val,
-                biphase_decoder.biphase_energy, biphase_decoder.last_even_sum,
-                biphase_decoder.last_odd_sum, biphase_decoder.polarity).unwrap();
+                bit_val, data_bit_val).unwrap();
         }
         chip_idx += 1;
 
-        if false && constellation.len() < 20000 {
-            constellation.push(sym);
-            if constellation.len() == 20000 {
-                let mut plot = Plot::new();
-                let trace = Scatter::new(constellation.iter().map(|s| s.re).collect(), constellation.iter().map(|s| s.im).collect()).mode(plotly::common::Mode::Markers);
-                plot.add_trace(trace);
-
-                plot.set_layout(plotly::Layout::new().title(format!("Biphase Constellation {}", constellation_num)));
-                plot.write_image(format!("biphase_constellation_{}.png", constellation_num), ImageFormat::PNG, 600, 600, 1.0);
-
-                let mut plot = Plot::new();
-                let trace2 = Histogram::new(constellation.iter().map(|s| s.re).collect()).name("Re");
-                let trace3 = Histogram::new(constellation.iter().map(|s| s.im).collect()).name("Im");
-                plot.add_trace(trace2);
-                plot.add_trace(trace3);
-                plot.set_layout(plotly::Layout::new().title(format!("Biphase Histogram {}", constellation_num)));
-                plot.write_image(format!("biphase_hist_{}.png", constellation_num), ImageFormat::PNG, 600, 600, 1.0);
-
-                constellation.clear();
-                constellation_num += 1;
-            }
-        }
-
-        // Block sync uses already-decoded biphase/delta from above
-        if let Some(data_bit) = data_bit {
-            if let Some(event) = block_sync.push_bit(data_bit as u8) {
+        // Block sync
+        if let Some(event) = block_sync.push_bit(data_bit as u8) {
                 match event {
                     rds_block_sync::SyncEvent::Group(group) => {
                         let state = decoder.process(&group);
@@ -615,9 +585,7 @@ fn rds_pipeline_v4(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>,
                 }
             }
 
-        }
     }
-
     // plot_re(&rds.debug.agc_hist[101..], "AGC history");
     // plot_re(&rds.debug.freq_avg_hist, "Costas frequency adjustment history");
     // plot_re(&rds.debug.phase_adj_hist, "Costas phase adjustment history");

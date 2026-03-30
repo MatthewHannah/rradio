@@ -156,6 +156,61 @@ pub fn generate_manchester_rrc_taps(fs: f64, num_spans: usize, window: &WindowTy
     h.iter().map(|&x| x as f32).collect()
 }
 
+/// Generate a differential RRC (Manchester matched filter) prototype.
+///
+/// Matches Python's `design_diff_rrc(span_chips, sps_chip, alpha)`:
+///   h_diff[n] = h_rrc[n] - h_rrc[n - sps_chip]
+///
+/// * `span_chips` — total RRC span in chip periods (e.g. 3)
+/// * `sps_chip` — samples per chip at the prototype rate (e.g. nfilters × SPS = 96)
+/// * `beta` — RRC roll-off factor (e.g. 0.8)
+///
+/// Returns Vec<f32> of length `span_chips * sps_chip + 1 + sps_chip`, normalized to unit energy.
+pub fn generate_diff_rrc_prototype(span_chips: usize, sps_chip: usize, beta: f64) -> Vec<f32> {
+    // Design base RRC: length = span_chips * sps_chip + 1
+    let rrc_len = span_chips * sps_chip + 1;
+    let half_len = rrc_len / 2;
+    let symbol_rate = 1.0; // normalized
+    let t_sym = 1.0;
+    let mut h_rrc = vec![0.0_f64; rrc_len];
+
+    for i in 0..rrc_len {
+        let t_norm = (i as f64 - half_len as f64) / sps_chip as f64;
+
+        h_rrc[i] = if t_norm.abs() < 1e-10 {
+            (1.0 + beta * (4.0 / PI - 1.0)) / t_sym
+        } else if (4.0 * beta * t_norm).abs() - 1.0 < 1e-10 {
+            beta / (t_sym * std::f64::consts::SQRT_2) *
+                ((1.0 + 2.0 / PI) * (PI / (4.0 * beta)).sin() +
+                 (1.0 - 2.0 / PI) * (PI / (4.0 * beta)).cos())
+        } else {
+            let pi_t = PI * t_norm;
+            let num = (pi_t * (1.0 - beta)).sin() +
+                      4.0 * beta * t_norm * (pi_t * (1.0 + beta)).cos();
+            let den = pi_t * (1.0 - (4.0 * beta * t_norm).powi(2));
+            num / den / t_sym
+        };
+    }
+
+    // Differential: h_diff[n] = h_rrc[n] - h_rrc[n - sps_chip]
+    let diff_len = rrc_len + sps_chip;
+    let mut h_diff = vec![0.0_f64; diff_len];
+    for (i, &v) in h_rrc.iter().enumerate() {
+        h_diff[i] += v;
+        h_diff[i + sps_chip] -= v;
+    }
+
+    // Normalize to unit energy
+    let energy = h_diff.iter().map(|x| x * x).sum::<f64>().sqrt();
+    if energy > 0.0 {
+        for x in h_diff.iter_mut() {
+            *x /= energy;
+        }
+    }
+
+    h_diff.iter().map(|&x| x as f32).collect()
+}
+
 /// Generate Root Raised Cosine (RRC) filter taps.
 ///
 /// * `fs` — sample rate (Hz)

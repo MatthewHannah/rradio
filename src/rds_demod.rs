@@ -32,6 +32,14 @@ impl NcoState {
         let osc_sample = Complex32::new(self.phase.cos(), -self.phase.sin());
         sample * osc_sample
     }
+
+    /// Redsea-style PLL step: direct phase correction + frequency integration.
+    /// dphi = phase_error × multiplier (in radians at chip rate)
+    /// pll_bw = frequency integration rate (normalized)
+    fn step_pll(&mut self, dphi: f32, pll_bw: f32) {
+        self.freq_adj += pll_bw * dphi;
+        self.phase_adj = dphi;
+    }
 }
 
 #[derive(Default)]
@@ -66,7 +74,7 @@ pub struct BiphaseDiag {
 
 pub struct RdsDemod {
     nco: NcoState,
-    symbol_sync: SymbolSync,
+    pub symbol_sync: SymbolSync,
     costas_loop_filter: PiLoopFilter,
     downsampler: RationalResampler<Complex32>,
 
@@ -79,18 +87,30 @@ pub struct RdsDemod {
 
 // Shared constants (must match Python bpsk_pfb_receiver.py)
 const R_CHIP: f32 = 2375.0;
-const TOTAL_DECIMATE: f32 = 72.0; // PRE_DECIMATE(24) × SPS(3)
+const TOTAL_DECIMATE: f32 = 144.0; // PRE_DECIMATE(24) × SPS_bit(6) — one update per bit
 
 // Costas carrier recovery (post-MF, chip rate)
 const COSTAS_BN_HZ: f32 = 30.0;
 const COSTAS_DAMPING: f32 = 0.707;
-const COSTAS_K_DET: f32 = 0.761594; // tanh(1): soft-decision tanh(I)·Q detector at unit power
+
+// Carrier detector: 0 = tanh(I)·Q (K_det=0.762), 1 = atan2 BPSK-folded (K_det=1.0)
+const CARRIER_DETECTOR: u8 = 0;
+const COSTAS_K_DET: f32 = if CARRIER_DETECTOR == 1 { 1.0 } else { 0.761594 };
 
 // Symbol timing recovery (PFB + ML TED)
 const TIMING_BN_HZ: f32 = 25.0;
 const TIMING_DAMPING: f32 = 1.0;    // critically damped
 const TIMING_K_TED: f32 = 0.040125; // ML TED S-curve slope per acc unit (post-AGC, from filter)
 const TIMING_NFILTERS: usize = 32;
+
+// Carrier detector: 0 = tanh(I)·Q Costas, 1 = atan2(Q,I) × multiplier (redsea-style)
+// PLL bandwidth for atan2 mode (redsea: 0.03 Hz at 171 kHz, but feedback is at chip rate)
+// Redsea's normalized bw = 0.03/171000. But our feedback runs once per chip via the NCO,
+// so we need: pll_bw = (0.03/171000) scaled for per-chip updates = sqrt(0.03/171000)
+// Actually redsea's liquid NCO does: freq += alpha*dphi, phase += dphi
+// where alpha = pll_bw (normalized). Since our phase_adj fans out to TOTAL_DECIMATE samples,
+// we need freq_adj in rad/sample: freq_adj += pll_bw_per_sample * dphi
+// pll_bw_per_sample = 0.03 / 171000 (same as redsea, since NCO runs at 171 kHz)
 
 const COSTAS_MAX_FREQ_HZ: f32 = 10.0;
 
@@ -144,16 +164,22 @@ fn liquid_symsync_coeffs(bt: f32) -> (f32, f32, f32, f32) {
 impl RdsDemod {
 
     pub fn new() -> Self {
-        let mf = rds_taps::generate_rrc_taps(2375.0*3.0*32.0, 2375.0, 0.8, 3);
+        // Manchester matched filter: diff-RRC prototype at nfilters × sps_chip rate.
+        // Matches Python: design_diff_rrc(span=RRC_SPAN, sps_chip=nfilters*SPS, alpha=0.8)
+        let sps_chip = 3_usize;
+        let sps_bit = sps_chip * 2; // 6 decimated samples per bit
+        let proto_sps_chip = TIMING_NFILTERS * sps_chip; // 96
+        let rrc_span = 3; // total span in chip periods (matches Python RRC_SPAN)
+        let mf = rds_taps::generate_diff_rrc_prototype(rrc_span, proto_sps_chip, 0.8);
 
         let costas_omega_n = bn_to_omega_n(COSTAS_BN_HZ, COSTAS_DAMPING);
-        let costas_omega_n_norm = costas_omega_n / R_CHIP;
-        let costas_max = 2.0 * std::f32::consts::PI * COSTAS_MAX_FREQ_HZ / R_CHIP;
+        let costas_omega_n_norm = costas_omega_n / (R_CHIP / 2.0); // Costas runs at bit rate now
+        let costas_max = 2.0 * std::f32::consts::PI * COSTAS_MAX_FREQ_HZ / (R_CHIP / 2.0);
         let costas_omega_p = COSTAS_POLE_MULT * costas_omega_n;
-        let (costas_pole_b0, costas_pole_a1) = pi_loop::calculate_extra_pole(costas_omega_p, R_CHIP);
+        let (costas_pole_b0, costas_pole_a1) = pi_loop::calculate_extra_pole(costas_omega_p, R_CHIP / 2.0);
 
-        let samples_per_symbol = 3;
-        let symbol_max_period_deviation = 1.0;
+        let samples_per_symbol = sps_bit;
+        let symbol_max_period_deviation = 0.2; // ±0.2 of 6 samples
 
         let downsample_filter = rds_taps::generate_lowpass_taps(171e3, 2500.0, 1001, &rds_taps::WindowType::Blackman);
 
@@ -176,9 +202,9 @@ impl RdsDemod {
             _ => {
                 // Standard PI from clock_tracking_loop
                 let timing_omega_n = bn_to_omega_n(TIMING_BN_HZ, TIMING_DAMPING);
-                let timing_omega_n_norm = timing_omega_n / R_CHIP;
+                let timing_omega_n_norm = timing_omega_n / (R_CHIP / 2.0); // bit rate
                 let timing_omega_p = TIMING_POLE_MULT * timing_omega_n;
-                let (timing_pole_b0, timing_pole_a1) = pi_loop::calculate_extra_pole(timing_omega_p, R_CHIP);
+                let (timing_pole_b0, timing_pole_a1) = pi_loop::calculate_extra_pole(timing_omega_p, R_CHIP / 2.0);
                 let k_ted_per_sample = TIMING_K_TED * TIMING_NFILTERS as f32;
                 SymbolSync::new(mf, samples_per_symbol, symbol_max_period_deviation,
                                 TIMING_NFILTERS, timing_omega_n_norm, TIMING_DAMPING,
@@ -223,17 +249,20 @@ impl RdsDemod {
         // debug.agc_hist.push(symbol_sync.agc.gain);
 
         // Costas carrier recovery (once per chip, post-MF)
-        // Soft-decision detector: tanh(I)·Q, K_det = tanh(1) ≈ 0.762
-        let phase_error = mf_out.re.tanh() * mf_out.im;
+        let phase_error = if CARRIER_DETECTOR == 1 {
+            // atan2 BPSK-folded: fold to nearest constellation point, measure residual
+            // K_det = 1.0 (atan2 output ≈ θ for small θ)
+            let (ri, rq) = if mf_out.re >= 0.0 { (mf_out.re, mf_out.im) } else { (-mf_out.re, -mf_out.im) };
+            rq.atan2(ri)
+        } else {
+            // Soft-decision Costas: tanh(I)·Q, K_det = tanh(1) ≈ 0.762
+            mf_out.re.tanh() * mf_out.im
+        };
         let pi_output = costas.advance(phase_error);
-
-        // Multi-rate NCO update:
-        //   freq (ongoing): integrator in rad/chip → ÷72 → rad/F_S_sample
-        //   phase (one-shot): proportional term (α×error) in radians
         {
             let mut nco_ref = nco.borrow_mut();
             nco_ref.freq_adj = costas.integrator / TOTAL_DECIMATE;
-            nco_ref.phase_adj = pi_output - costas.integrator; // = α × error
+            nco_ref.phase_adj = pi_output - costas.integrator;
         }
 
         // debug.phase_adj_hist.push(pi_output);
@@ -271,8 +300,26 @@ impl RdsDemod {
             symbol_sync.next(&mut symsync_input)?
         };
 
-        let phase_error = mf_out.re.tanh() * mf_out.im;
-        let pi_output = costas.advance(phase_error);
+        let phase_error = if CARRIER_DETECTOR == 1 {
+            let (ri, rq) = if mf_out.re >= 0.0 { (mf_out.re, mf_out.im) } else { (-mf_out.re, -mf_out.im) };
+            rq.atan2(ri)
+        } else {
+            mf_out.re.tanh() * mf_out.im
+        };
+
+        {
+            let pi_output = costas.advance(phase_error);
+            let mut nco_ref = nco.borrow_mut();
+            nco_ref.freq_adj = costas.integrator / TOTAL_DECIMATE;
+            nco_ref.phase_adj = pi_output - costas.integrator;
+        }
+
+        if false {
+            let pi_output = costas.advance(phase_error);
+            let mut nco_ref = nco.borrow_mut();
+            nco_ref.freq_adj = costas.integrator / TOTAL_DECIMATE;
+            nco_ref.phase_adj = pi_output - costas.integrator;
+        }
 
         let diag = ChipDiag {
             mf_re: mf_out.re,
@@ -286,11 +333,7 @@ impl RdsDemod {
             ds_power: **ds_pwr.borrow(),
         };
 
-        {
-            let mut nco_ref = nco.borrow_mut();
-            nco_ref.freq_adj = costas.integrator / TOTAL_DECIMATE;
-            nco_ref.phase_adj = pi_output - costas.integrator;
-        }
+        // NCO update already done above in the if/else
 
         Some((mf_out, diag))
     }

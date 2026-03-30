@@ -77,6 +77,19 @@ impl BiphaseDecoder {
 
         BiphaseResult { bit, has_value }
     }
+
+    /// Notify the biphase decoder that the timing loop consumed a non-nominal
+    /// number of samples (skip or slip). A true timing slip is when the consumed
+    /// samples differ from nominal by more than 1 (e.g., 1 or 5+ for SPS=3).
+    /// Normal fractional timing produces ±1 variation (2 or 4 for SPS=3).
+    pub fn notify_timing_adjust(&mut self, samples_consumed: usize, nominal_sps: usize) {
+        let diff = (samples_consumed as i32) - (nominal_sps as i32);
+        if diff.abs() > 1 {
+            // True slip: bump clock by the number of extra/missing samples
+            let bump = (diff.abs() - 1) as usize;
+            self.clock = (self.clock + bump) % 128;
+        }
+    }
 }
 
 /// Delta (differential) decoder: XOR of consecutive bits.
