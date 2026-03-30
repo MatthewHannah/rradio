@@ -87,7 +87,7 @@ pub struct RdsDemod {
 
 // Shared constants (must match Python bpsk_pfb_receiver.py)
 const R_CHIP: f32 = 2375.0;
-const TOTAL_DECIMATE: f32 = 144.0; // PRE_DECIMATE(24) × SPS_bit(6) — one update per bit
+const TOTAL_DECIMATE: f32 = 72.0; // keep NCO feedback at chip-rate equivalent // PRE_DECIMATE(24) × SPS_bit(6) — one update per bit
 
 // Costas carrier recovery (post-MF, chip rate)
 const COSTAS_BN_HZ: f32 = 30.0;
@@ -98,9 +98,9 @@ const CARRIER_DETECTOR: u8 = 0;
 const COSTAS_K_DET: f32 = if CARRIER_DETECTOR == 1 { 1.0 } else { 0.761594 };
 
 // Symbol timing recovery (PFB + ML TED)
-const TIMING_BN_HZ: f32 = 25.0;
+const TIMING_BN_HZ: f32 = 10.0;
 const TIMING_DAMPING: f32 = 1.0;    // critically damped
-const TIMING_K_TED: f32 = 0.040125; // ML TED S-curve slope per acc unit (post-AGC, from filter)
+const TIMING_K_TED: f32 = 0.3303;   // ML TED S-curve slope per acc unit (Manchester diff-RRC, nf=32)
 const TIMING_NFILTERS: usize = 32;
 
 // Carrier detector: 0 = tanh(I)·Q Costas, 1 = atan2(Q,I) × multiplier (redsea-style)
@@ -173,15 +173,15 @@ impl RdsDemod {
         let mf = rds_taps::generate_diff_rrc_prototype(rrc_span, proto_sps_chip, 0.8);
 
         let costas_omega_n = bn_to_omega_n(COSTAS_BN_HZ, COSTAS_DAMPING);
-        let costas_omega_n_norm = costas_omega_n / (R_CHIP / 2.0); // Costas runs at bit rate now
-        let costas_max = 2.0 * std::f32::consts::PI * COSTAS_MAX_FREQ_HZ / (R_CHIP / 2.0);
+        let costas_omega_n_norm = costas_omega_n / R_CHIP; // Costas runs at bit rate now
+        let costas_max = 2.0 * std::f32::consts::PI * COSTAS_MAX_FREQ_HZ / R_CHIP;
         let costas_omega_p = COSTAS_POLE_MULT * costas_omega_n;
-        let (costas_pole_b0, costas_pole_a1) = pi_loop::calculate_extra_pole(costas_omega_p, R_CHIP / 2.0);
+        let (costas_pole_b0, costas_pole_a1) = pi_loop::calculate_extra_pole(costas_omega_p, R_CHIP);
 
         let samples_per_symbol = sps_bit;
         let symbol_max_period_deviation = 0.2; // ±0.2 of 6 samples
 
-        let downsample_filter = rds_taps::generate_lowpass_taps(171e3, 2500.0, 1001, &rds_taps::WindowType::Blackman);
+        let downsample_filter = rds_taps::generate_lowpass_taps(171e3, 2500.0, 201, &rds_taps::WindowType::Blackman);
 
         // Pre-NCO bandpass filter: reject audio/stereo/pilot before 57 kHz mixing.
         // Design: lowpass at 3 kHz, modulated to 57 kHz center.

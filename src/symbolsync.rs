@@ -74,11 +74,10 @@ fn polyphase_bank(prototype_filt: &[f32], k: usize) -> Vec<Vec<f32>> {
 fn differentiate(h: &[f32]) -> Vec<f32> {
     let n = h.len();
     let mut dh = vec![0.0_f32; n];
-    for i in 0..n {
-        let prev = if i > 0 { h[i - 1] } else { 0.0 };
-        let next = if i < n - 1 { h[i + 1] } else { 0.0 };
-        dh[i] = 0.5 * (next - prev);
+    for i in 1..n-1 {
+        dh[i] = 0.5 * (h[i + 1] - h[i - 1]);
     }
+    // Edges stay zero (matching Python convention)
     dh
 }
 
