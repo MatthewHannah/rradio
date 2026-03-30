@@ -179,7 +179,7 @@ pub fn generate_diff_rrc_prototype(span_chips: usize, sps_chip: usize, beta: f64
 
         h_rrc[i] = if t_norm.abs() < 1e-10 {
             (1.0 + beta * (4.0 / PI - 1.0)) / t_sym
-        } else if (4.0 * beta * t_norm).abs() - 1.0 < 1e-10 {
+        } else if ((4.0 * beta * t_norm).abs() - 1.0).abs() < 1e-10 {
             beta / (t_sym * std::f64::consts::SQRT_2) *
                 ((1.0 + 2.0 / PI) * (PI / (4.0 * beta)).sin() +
                  (1.0 - 2.0 / PI) * (PI / (4.0 * beta)).cos())
@@ -231,7 +231,7 @@ pub fn generate_rrc_taps(fs: f64, symbol_rate: f64, beta: f64, num_symbols: usiz
         taps[i] = if t_norm.abs() < 1e-10 {
             // t = 0
             (1.0 + beta * (4.0 / PI - 1.0)) / t_sym
-        } else if (4.0 * beta * t_norm).abs() - 1.0 < 1e-10 {
+        } else if ((4.0 * beta * t_norm).abs() - 1.0).abs() < 1e-10 {
             // t = ±T/(4β) — the singularity
             beta / (t_sym * std::f64::consts::SQRT_2) *
                 ((1.0 + 2.0 / PI) * (PI / (4.0 * beta)).sin() +
