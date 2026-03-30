@@ -543,23 +543,34 @@ fn rds_pipeline_v4(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>,
             }
         };
 
-        // Manchester MF directly outputs bits — hard decision on I, then delta decode
-        let bit = sym.re >= 0.0;
-        let data_bit = delta_decoder.decode(bit);
+        // Feedforward timing slip info to biphase decoder
+        biphase_decoder.notify_timing_adjust(
+            rds.symbol_sync.last_samples_consumed,
+            rds.symbol_sync.nominal_sps,
+        );
+
+        // Biphase + delta decode
+        let result = biphase_decoder.push(sym);
+        let data_bit = if result.has_value {
+            Some(delta_decoder.decode(result.bit))
+        } else {
+            None
+        };
 
         if let (Some(w), Some(d)) = (&mut diag_writer, diag) {
             use std::io::Write;
-            let bit_val: i8 = if bit { 1 } else { 0 };
-            let data_bit_val: i8 = data_bit as i8;
+            let biphase_bit: i8 = if result.has_value { if result.bit { 1 } else { 0 } } else { -1 };
+            let data_bit_val: i8 = data_bit.map(|b| b as i8).unwrap_or(-1);
             writeln!(w, "{},{:.6},{:.6},{:.6},{:.8},{:.6},{:.6},{:.4},{:.8},{:.8},{},{}",
                 chip_idx, d.mf_re, d.mf_im, d.costas_phase_err, d.costas_freq,
                 d.timing_period, d.timing_avg_period, d.agc_gain, d.input_power, d.ds_power,
-                bit_val, data_bit_val).unwrap();
+                biphase_bit, data_bit_val).unwrap();
         }
         chip_idx += 1;
 
         // Block sync
-        if let Some(event) = block_sync.push_bit(data_bit as u8) {
+        if let Some(data_bit) = data_bit {
+            if let Some(event) = block_sync.push_bit(data_bit as u8) {
                 match event {
                     rds_block_sync::SyncEvent::Group(group) => {
                         let state = decoder.process(&group);
@@ -584,6 +595,7 @@ fn rds_pipeline_v4(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>,
                     }
                 }
             }
+        }
 
     }
     // plot_re(&rds.debug.agc_hist[101..], "AGC history");
@@ -800,7 +812,7 @@ const RDS_FS: f32 = 19000.0;          // final RDS sample rate
 /// Exact replication of windytan/redsea's DSP chain using liquid-dsp algorithms:
 ///   Resample -> NCO 57kHz (PLL) -> FIR LPF 2400Hz -> div24 -> AGC -> SymSync
 ///   -> Modem phase error -> PLL feedback -> Biphase -> Delta -> Block sync
-fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wfm_fs: f32, config: &rds_config::RdsConfig, debug: bool, metrics: bool) {
+fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wfm_fs: f32, config: &rds_config::RdsConfig, debug: bool, metrics: bool, diag_path: Option<&str>) {
     // === REDSEA CONSTANTS ===
     const TARGET_FS: f32 = 171_000.0;
     const BITS_PER_SECOND: f32 = 1187.5;
@@ -865,6 +877,14 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wf
     let mut diag_strobe_re: Vec<f32> = Vec::new();
     let mut diag_strobe_im: Vec<f32> = Vec::new();
 
+    // Chip-level CSV diagnostic output
+    let mut chip_writer = diag_path.map(|path| {
+        let mut w = std::io::BufWriter::new(std::fs::File::create(path).expect("Failed to create diag file"));
+        use std::io::Write;
+        writeln!(w, "chip,re,im").unwrap();
+        w
+    });
+
     let decimated_fs = TARGET_FS / DECIMATE_RATIO as f32;
     eprintln!("Redsea pipeline: resample {:.0}->{:.0} -> NCO 57kHz -> polyphase LPF+div{} ({}t) -> {:.0} Hz -> AGC -> SymSync(k={},b={},npfb={}) -> BPSK -> PLL(bw={:.2e},x{})",
         wfm_fs, TARGET_FS, DECIMATE_RATIO, LPF_LEN, decimated_fs,
@@ -928,6 +948,12 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wf
             // --- Running at ~2375 Hz (chip rate) ---
             total_chips += 1;
 
+            // Dump chip to CSV if diagnostic enabled
+            if let Some(ref mut w) = chip_writer {
+                use std::io::Write;
+                writeln!(w, "{},{:.6},{:.6}", total_chips, symbol.re, symbol.im).unwrap();
+            }
+
             // 6. BPSK modem: phase error (decision ignored, only error used)
             let demod = modem.demodulate(symbol);
 
@@ -948,6 +974,12 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wf
                 // 9. Delta (differential) decode
                 let data_bit = delta_decoder.decode(biphase_result.bit);
                 total_bits += 1;
+
+                // Dump bit to chip CSV (reuse same file)
+                if let Some(ref mut w) = chip_writer {
+                    use std::io::Write;
+                    writeln!(w, "BIT,{},{}", total_bits, data_bit as u8).unwrap();
+                }
 
                 // 10. Block sync + group decode
                 if let Some(event) = block_sync.push_bit(data_bit as u8) {
@@ -1144,7 +1176,7 @@ fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::Ato
         // Toggle: use rds_pipeline (redsea) or rds_pipeline_v4 (ours)
         let use_redsea = std::env::var("USE_REDSEA").is_ok();
         if use_redsea {
-            rds_pipeline(&done_ref, rds_rx, wfm_fs, &rds_config2, rds_debug, rds_metrics);
+            rds_pipeline(&done_ref, rds_rx, wfm_fs, &rds_config2, rds_debug, rds_metrics, diag_path.as_deref());
         } else {
             rds_pipeline_v4(&done_ref, rds_rx, wfm_fs, &rds_config2, rds_debug, rds_metrics, diag_path.as_deref());
         }
