@@ -1095,15 +1095,15 @@ fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::Ato
     let done_ref = done_sig.clone();
     let rds_config2 = rds_config;
     let rds_thread = std::thread::spawn(move || {
-        // Toggle: USE_REDSEA for redsea pipeline, USE_V5 for v2 demod, default = v4
+        // Toggle: USE_REDSEA for redsea pipeline, USE_V4 for old v4 demod, default = v5
         let use_redsea = std::env::var("USE_REDSEA").is_ok();
-        let use_v5 = std::env::var("USE_V5").is_ok();
+        let use_v4 = std::env::var("USE_V4").is_ok();
         if use_redsea {
             rds_pipeline(&done_ref, rds_rx, wfm_fs, &rds_config2, rds_debug, rds_metrics, diag_path.as_deref());
-        } else if use_v5 {
-            rds_pipeline_v5(&done_ref, rds_rx, wfm_fs, &rds_config2, rds_debug, rds_metrics);
-        } else {
+        } else if use_v4 {
             rds_pipeline_v4(&done_ref, rds_rx, wfm_fs, &rds_config2, rds_debug, rds_metrics, diag_path.as_deref());
+        } else {
+            rds_pipeline_v5(&done_ref, rds_rx, wfm_fs, &rds_config2, rds_debug, rds_metrics);
         }
     });
 
@@ -1231,7 +1231,7 @@ fn main() {
             let config = soapy::SoapyConfig {
                 filter: filter.to_string(),
                 station,
-                bw: 600e6,
+                bw: 200e6,
                 fs: 2.4e6,
             };
             run(IqSource::Soapy { config }, audio_output, done_sig, obs_settings, rds_debug, rds_metrics, record_path, rds_config.clone(), mpx_path.clone(), diag_path.clone());
@@ -1244,7 +1244,7 @@ fn main() {
             let config = pluto::SdrConfig {
                 uri: "ip:pluto.local".to_string(),
                 station,
-                bw: 600e6,
+                bw: 200e6,
                 fs: 2.4e6,
             };
             run(IqSource::Pluto { config }, audio_output, done_sig, obs_settings, rds_debug, rds_metrics, record_path, rds_config.clone(), mpx_path.clone(), diag_path.clone());
