@@ -15,11 +15,7 @@ mod buffer;
 mod soapy;
 mod fir;
 mod rds_block_sync;
-mod agc;
-mod nco;
 mod biphase;
-mod psk_modem;
-mod symsync;
 mod rds_demod;
 
 use std::sync::atomic;
@@ -565,281 +561,8 @@ fn rds_pipeline_v5(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>,
 }
 
 const AUDIO_DOWNSAMPLE: usize = 5;
-const RDS_FIRST_DECIMATE: usize = 12; // 240 kHz → 20 kHz
-const RDS_UPSAMPLE: usize = 19;       // 20 kHz → 380 kHz (virtual)
-const RDS_SECOND_DECIMATE: usize = 20; // 380 kHz → 19 kHz
-const RDS_FS: f32 = 19000.0;          // final RDS sample rate
 
-
-/// RDS decoding pipeline.
-///
-/// The approach here — using a Manchester-shaped RRC matched filter with
-/// symbol sync at bit rate (1187.5 Hz) and a Costas loop for BPSK phase
-/// recovery — is informed by Bastian Bloessl's gr-rds flowgraph for
-/// GNU Radio, which was shown to be the best-performing RDS decoder across
-/// 38 FM stations in a comparative analysis by site2241.net (January 2024).
-///
-/// References:
-///   - Bloessl's gr-rds: https://github.com/bastibl/gr-rds
-///   - Comparative analysis: https://www.site2241.net/january2024.htm
-///   - Andy Walls, "Symbol Clock Recovery", GRCon 2017 (AGC requirements for TEDs)
-///   - RDS standard: IEC 62106
-/// Redsea-style RDS pipeline.
-///
-/// Input: Complex32 baseband at wfm_fs (240 kHz) from PLL-driven 57 kHz mixer.
-///
-/// Architecture (mimicking windytan/redsea):
-///   FIR LPF 2400 Hz → ÷ to ~3 samp/chip → AGC → SymSync (complex clock recovery)
-///   → PSK2 modem → phase error → NCO PLL feedback → biphase decode → delta decode
-///
-/// Key differences from our old pipeline:
-///   - Tight 2400 Hz LPF (was 4000 Hz)
-///   - Chip-rate clock recovery at 2375 Hz (was bit-rate at 1187.5 Hz)
-///   - Decision-directed carrier tracking via modem phase error (was Costas loop)
-///   - Explicit biphase Manchester decode (was Manchester-RRC matched filter)
-///
-/// TODO: For true Redsea replication, the pipeline should receive real MPX (f32)
-/// and do its own 57 kHz NCO mixing with PLL feedback. Currently we receive
-/// post-PLL complex baseband, so the phase error feedback path is not yet closed.
-/// Redsea-compatible RDS pipeline.
-///
-/// Exact replication of windytan/redsea's DSP chain using liquid-dsp algorithms:
-///   Resample -> NCO 57kHz (PLL) -> FIR LPF 2400Hz -> div24 -> AGC -> SymSync
-///   -> Modem phase error -> PLL feedback -> Biphase -> Delta -> Block sync
-fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wfm_fs: f32, debug: bool, metrics: bool, diag_path: Option<&str>) {
-    // === REDSEA CONSTANTS ===
-    const TARGET_FS: f32 = 171_000.0;
-    const BITS_PER_SECOND: f32 = 1187.5;
-    const CHIP_RATE: f32 = 2375.0;
-    const SAMPLES_PER_SYMBOL: usize = 3;
-    const DECIMATE_RATIO: usize = 24; // 171000 / 2375 / 3 = 24
-    const AGC_BW: f32 = 500.0 / TARGET_FS;
-    const AGC_INITIAL_GAIN: f32 = 0.08;
-    const LPF_CUTOFF: f32 = 2400.0 / TARGET_FS;
-    const LPF_LEN: usize = 255;
-    const SYMSYNC_BW: f32 = 2200.0 / TARGET_FS;
-    const SYMSYNC_DELAY: usize = 3;
-    const SYMSYNC_BETA: f32 = 0.8;
-    const SYMSYNC_NPFB: usize = 32;
-    const PLL_BW_HZ: f32 = 0.03;
-    const PLL_MULTIPLIER: f32 = 12.0;
-
-    // === RESAMPLE 240 kHz -> 171 kHz (L=57, M=80) ===
-    let resamp_l = 57_usize;
-    let resamp_m = 80_usize;
-    let proto_fs = resamp_l as f64 * wfm_fs as f64;
-    let proto_cutoff = TARGET_FS as f64 / 2.0;
-    let mut resamp_taps = fir::generate_lowpass_taps(proto_fs, proto_cutoff, 570, &fir::WindowType::Blackman);
-    for t in resamp_taps.iter_mut() { *t *= resamp_l as f32; }
-    let mut resampler = resample::RationalResampler::<f32>::new(resamp_taps, resamp_l, resamp_m);
-
-    // === NCO at 57 kHz with PLL (liquid-dsp: alpha=bw, beta=sqrt(bw)) ===
-    let mut nco = nco::Nco::new(57000.0, TARGET_FS, PLL_BW_HZ, CHIP_RATE);
-
-    // === Polyphase decimator: LPF + ÷24 in one step (L=1, M=24) ===
-    let mut lpf_taps = fir::generate_lowpass_taps(TARGET_FS as f64, 2400.0, LPF_LEN, &fir::WindowType::Blackman);
-    let fir_scale = 2.0 * LPF_CUTOFF;
-    for t in lpf_taps.iter_mut() { *t *= fir_scale; }  // bake scale into taps
-    let mut decimator = resample::RationalResampler::<Complex32>::new(lpf_taps, 1, DECIMATE_RATIO);
-
-    // === AGC (liquid-dsp compatible) ===
-    let mut agc = agc::Agc::new(AGC_BW, AGC_INITIAL_GAIN);
-
-    // === SymSync: polyphase filterbank clock recovery ===
-    let mut symsync = symsync::SymSync::new(SAMPLES_PER_SYMBOL, SYMSYNC_DELAY, SYMSYNC_BETA, SYMSYNC_NPFB);
-    symsync.set_bandwidth(SYMSYNC_BW);
-    symsync.set_output_rate(1);
-
-    // === Modem + Biphase + Delta ===
-    let modem = psk_modem::BpskModem::new();
-    let mut biphase_decoder = biphase::BiphaseDecoder::new();
-    let mut delta_decoder = biphase::DeltaDecoder::new();
-
-    // === Block Sync ===
-    let mut block_sync = rds_block_sync::RdsBlockSync::new(
-        std::iter::empty::<u8>(), 2, 12, debug);
-    let mut decoder = rds_block_sync::RdsDecoder::new();
-    let mut display = rds_block_sync::RdsDisplay::new();
-    let start_time = std::time::Instant::now();
-
-    let mut total_chips: u64 = 0;
-    let mut total_bits: u64 = 0;
-
-    // Diagnostic collectors (only when running from recording, not live)
-    let collect_diag = !metrics; // Skip diagnostics in metrics mode for cleaner benchmarks
-    let mut diag_phase_err: Vec<f32> = Vec::new();
-    let mut diag_strobe_re: Vec<f32> = Vec::new();
-    let mut diag_strobe_im: Vec<f32> = Vec::new();
-
-    // Chip-level CSV diagnostic output
-    let mut chip_writer = diag_path.map(|path| {
-        let mut w = std::io::BufWriter::new(std::fs::File::create(path).expect("Failed to create diag file"));
-        use std::io::Write;
-        writeln!(w, "chip,re,im").unwrap();
-        w
-    });
-
-    let decimated_fs = TARGET_FS / DECIMATE_RATIO as f32;
-    eprintln!("Redsea pipeline: resample {:.0}->{:.0} -> NCO 57kHz -> polyphase LPF+div{} ({}t) -> {:.0} Hz -> AGC -> SymSync(k={},b={},npfb={}) -> BPSK -> PLL(bw={:.2e},x{})",
-        wfm_fs, TARGET_FS, DECIMATE_RATIO, LPF_LEN, decimated_fs,
-        SAMPLES_PER_SYMBOL, SYMSYNC_BETA, SYMSYNC_NPFB, PLL_BW_HZ, PLL_MULTIPLIER);
-
-    use crate::filterable::Filter;
-    let mut rds_iter = buffer::RecvBufIter::new(rds_rx);
-
-    let mut constellation_pre_symsync_vec = vec![];
-    let mut constellation_post_symsync_vec = vec![];
-
-    // === MAIN PROCESSING LOOP ===
-    // Chain: rds_iter → resample 240k→171k → NCO mix → polyphase LPF+÷24 → 7125 Hz
-    loop {
-        if done.load(atomic::Ordering::Relaxed) { break; }
-
-        // Polyphase decimator pulls from NCO-mixed stream, which pulls from resampler
-        let filtered = match decimator.process(&mut std::iter::from_fn(|| {
-            let mpx_sample = resampler.process(&mut rds_iter)?;
-            let baseband = nco.mix_down(mpx_sample);
-            nco.step();
-            Some(baseband)
-        })) {
-            Some(s) => s,
-            None => break,
-        };
-
-        // --- Running at 7125 Hz (3 samp/chip) ---
-
-        // 4. AGC
-        let agc_out = agc.process(filtered);
-
-        use plotly::{Plot, Scatter, Layout, common::Mode};
-
-
-        if constellation_pre_symsync_vec.len() < 5000 {
-            constellation_pre_symsync_vec.push(agc_out);
-            if constellation_pre_symsync_vec.len() == 500 {
-                let mut plot = Plot::new();
-                let trace = Scatter::new(constellation_pre_symsync_vec.iter().map(|s| s.re).collect(), constellation_pre_symsync_vec.iter().map(|s| s.im).collect()).mode(Mode::Markers);
-                plot.add_trace(trace);
-                plot.set_layout(plotly::Layout::new().title("Constellation Pre Symsync"));
-                plot.write_image("constellation_pre.png", plotly::ImageFormat::PNG, 600, 600, 1.0);
-            }
-        }
-
-        // 5. SymSync: polyphase filterbank clock recovery
-        let symbols = symsync.execute(agc_out);
-
-        for &symbol in symbols.iter() {
-            if constellation_post_symsync_vec.len() < 5000 {
-                constellation_post_symsync_vec.push(symbol);
-                if constellation_post_symsync_vec.len() == 5000 {
-                    let mut plot = Plot::new();
-                    let trace = Scatter::new(constellation_post_symsync_vec.iter().map(|s| s.re).collect(), constellation_post_symsync_vec.iter().map(|s| s.im).collect()).mode(Mode::Markers);
-                    plot.add_trace(trace);
-                    plot.set_layout(plotly::Layout::new().title("Constellation Post Symsync"));
-                    plot.write_image("constellation_post.png", plotly::ImageFormat::PNG, 600, 600, 1.0);
-                }
-            }
-            // --- Running at ~2375 Hz (chip rate) ---
-            total_chips += 1;
-
-            // Dump chip to CSV if diagnostic enabled
-            if let Some(ref mut w) = chip_writer {
-                use std::io::Write;
-                writeln!(w, "{},{:.6},{:.6}", total_chips, symbol.re, symbol.im).unwrap();
-            }
-
-            // 6. BPSK modem: phase error (decision ignored, only error used)
-            let demod = modem.demodulate(symbol);
-
-            // Collect diagnostics (skip in metrics mode)
-            if collect_diag {
-                //diag_phase_err.push(demod.phase_error);
-                //diag_strobe_re.push(symbol.re);
-                //diag_strobe_im.push(symbol.im);
-            }
-
-            // 7. PLL feedback: phase error * multiplier -> NCO
-            let clamped = demod.phase_error.clamp(-std::f32::consts::PI, std::f32::consts::PI);
-            nco.step_pll(clamped * PLL_MULTIPLIER);
-
-            // 8. Biphase (Manchester) decode: 2375 -> 1187.5 Hz
-            let biphase_result = biphase_decoder.push(symbol);
-            if biphase_result.has_value {
-                // 9. Delta (differential) decode
-                let data_bit = delta_decoder.decode(biphase_result.bit);
-                total_bits += 1;
-
-                // Dump bit to chip CSV (reuse same file)
-                if let Some(ref mut w) = chip_writer {
-                    use std::io::Write;
-                    writeln!(w, "BIT,{},{}", total_bits, data_bit as u8).unwrap();
-                }
-
-                // 10. Block sync + group decode
-                if let Some(event) = block_sync.push_bit(data_bit as u8) {
-                    match event {
-                        rds_block_sync::SyncEvent::Group(group) => {
-                            let state = decoder.process(&group);
-                            let elapsed = start_time.elapsed().as_secs_f64();
-                            if metrics {
-                                let pi_str = if group.pi_code != 0 { format!("{:04X}", group.pi_code) } else { "0000".to_string() };
-                                eprintln!("RDSMETRIC {{\"t\":{:.3},\"bler\":{:.4},\"groups\":{},\"pi\":\"{}\"}}", elapsed, group.rolling_bler, state.groups_decoded, pi_str);
-                            }
-                            if debug {
-                                let v = if group.version { "B" } else { "A" };
-                                eprintln!("RDS Group {}{}: PI=0x{:04X}  BLER={:.1}%", group.group_type, v, group.pi_code, group.rolling_bler * 100.0);
-                            } else if !metrics {
-                                display.set_synced(true);
-                                display.render(&state);
-                            }
-                        }
-                        rds_block_sync::SyncEvent::Locked => {
-                            if !metrics && !debug { display.set_synced(true); display.render(&decoder.display_state()); }
-                        }
-                        rds_block_sync::SyncEvent::LostSync | rds_block_sync::SyncEvent::Searching => {
-                            if !metrics && !debug { display.set_synced(false); display.render(&decoder.display_state()); }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    eprintln!("Pipeline stats: {} chips, {} bits", total_chips, total_bits);
-
-    // === Diagnostic plots ===
-    if !diag_phase_err.is_empty() {
-        use plotly::{Plot, Scatter, Layout};
-        use plotly::layout::Axis;
-        let time: Vec<f32> = (0..diag_phase_err.len()).map(|i| i as f32 / CHIP_RATE).collect();
-
-        let mut plot = Plot::new();
-        plot.add_trace(Scatter::new(time, diag_phase_err.clone()).name("Phase error (rad)"));
-        plot.set_layout(Layout::new()
-            .title("07 PLL Phase Error vs Time")
-            .x_axis(Axis::new().title("Time (s)"))
-            .y_axis(Axis::new().title("rad").range(vec![-3.2, 3.2])));
-        plot.write_image("07_pll_phase_error.png", plotly::ImageFormat::PNG, 1400, 400, 1.0);
-        eprintln!("Saved: 07_pll_phase_error.png");
-
-        let mut plot = Plot::new();
-        use plotly::common::Mode;
-        plot.add_trace(Scatter::new(diag_strobe_re.clone(), diag_strobe_im.clone())
-            .mode(Mode::Markers).name("Symbol IQ"));
-        plot.set_layout(Layout::new().title("09 Constellation (chip strobes)"));
-        plot.write_image("09_constellation.png", plotly::ImageFormat::PNG, 600, 600, 1.0);
-        eprintln!("Saved: 09_constellation.png");
-    }
-
-    if metrics {
-        let elapsed = start_time.elapsed().as_secs_f64();
-        let state = decoder.display_state();
-        eprintln!("RDSSUMMARY {{\"groups\":{},\"duration\":{:.1},\"final_bler\":{:.4}}}",
-            state.groups_decoded, elapsed, 0.0);
-    }
-}
-
-fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::AtomicBool>, obs_settings: AudioPipelineObservationSettings, rds_debug: bool, rds_metrics: bool, record_path: Option<String>, mpx_path: Option<String>, diag_path: Option<String>) {
+fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::AtomicBool>, obs_settings: AudioPipelineObservationSettings, rds_debug: bool, rds_metrics: bool, record_path: Option<String>, mpx_path: Option<String>) {
     let fs = match &iq_source {
         IqSource::Pluto { config } => config.fs,
         IqSource::Soapy { config } => config.fs,
@@ -857,8 +580,7 @@ fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::Ato
         fs, settings.iq_downsample, settings.fm_demod_downsample, wfm_fs);
     eprintln!("  Audio: wfm @ {} Hz → ÷{} → {} Hz stereo",
         wfm_fs, AUDIO_DOWNSAMPLE, wfm_fs / AUDIO_DOWNSAMPLE as f32);
-    eprintln!("  RDS:   wfm @ {} Hz → ÷{} → ↑{} ↓{} → {} Hz baseband",
-        wfm_fs, RDS_FIRST_DECIMATE, RDS_UPSAMPLE, RDS_SECOND_DECIMATE, RDS_FS);
+    eprintln!("  RDS:   v5 pipeline (internal resample to 14250 Hz)");
 
     // Buffer pairs
     let (iq_tx, iq_rx) = buffer::buf_pair::<Vec<Complex32>>(8);
@@ -966,13 +688,7 @@ fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::Ato
     // Thread 3: RDS consumer
     let done_ref = done_sig.clone();
     let rds_thread = std::thread::spawn(move || {
-        // Toggle: USE_REDSEA for redsea pipeline, default = v5
-        let use_redsea = std::env::var("USE_REDSEA").is_ok();
-        if use_redsea {
-            rds_pipeline(&done_ref, rds_rx, wfm_fs, rds_debug, rds_metrics, diag_path.as_deref());
-        } else {
-            rds_pipeline_v5(&done_ref, rds_rx, wfm_fs, rds_debug, rds_metrics);
-        }
+        rds_pipeline_v5(&done_ref, rds_rx, wfm_fs, rds_debug, rds_metrics);
     });
 
     // Main thread: Audio consumer (downsample + interleave + output)
@@ -1021,7 +737,6 @@ fn main() {
     let mut rds_metrics = false;
     let mut record_path: Option<String> = None;
     let mut mpx_path: Option<String> = None;
-    let mut diag_path: Option<String> = None;
     let mut duration_secs: Option<f64> = None;
     let mut i = 0;
     while i < args.len() {
@@ -1039,9 +754,6 @@ fn main() {
             i += 2;
         } else if args[i] == "--mpx" {
             mpx_path = Some(args.get(i + 1).expect("Usage: --mpx <path.wav>").clone());
-            i += 2;
-        } else if args[i] == "--diag" {
-            diag_path = Some(args.get(i + 1).expect("Usage: --diag <path.csv>").clone());
             i += 2;
         } else if args[i] == "--duration" {
             duration_secs = Some(args.get(i + 1).expect("Usage: --duration <seconds>")
@@ -1078,7 +790,7 @@ fn main() {
                 * 1e3;
             let streamer = sigmf::SigmfStreamer::new(path).expect("Failed to open SigMF file");
             let source = IqSource::Sigmf { streamer, tune_offset };
-            run(source, audio_output, done_sig, obs_settings, rds_debug, rds_metrics, record_path, mpx_path.clone(), diag_path.clone());
+            run(source, audio_output, done_sig, obs_settings, rds_debug, rds_metrics, record_path, mpx_path.clone());
         }
         Some("soapy") => {
             let filter = pos.next().expect("Usage: rradio soapy <filter> [station_mhz]");
@@ -1092,7 +804,7 @@ fn main() {
                 bw: 200e6,
                 fs: 2.4e6,
             };
-            run(IqSource::Soapy { config }, audio_output, done_sig, obs_settings, rds_debug, rds_metrics, record_path, mpx_path.clone(), diag_path.clone());
+            run(IqSource::Soapy { config }, audio_output, done_sig, obs_settings, rds_debug, rds_metrics, record_path, mpx_path.clone());
         }
         Some("pluto") => {
             let station: f32 = pos.next()
@@ -1105,7 +817,7 @@ fn main() {
                 bw: 200e6,
                 fs: 2.4e6,
             };
-            run(IqSource::Pluto { config }, audio_output, done_sig, obs_settings, rds_debug, rds_metrics, record_path, mpx_path.clone(), diag_path.clone());
+            run(IqSource::Pluto { config }, audio_output, done_sig, obs_settings, rds_debug, rds_metrics, record_path, mpx_path.clone());
         }
         _ => {
             eprintln!("Usage: rradio <source> [options] [--wav <output.wav>]");
