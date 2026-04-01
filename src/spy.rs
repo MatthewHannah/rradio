@@ -11,6 +11,10 @@ impl <I> Iterator for SpyIter<I> where I: Iterator, I::Item: Copy {
     type Item = I::Item;
 
     fn next(&mut self) -> Option<Self::Item> {
+        if self.callback.is_none() {
+            return self.iter.next();
+        }
+
         match self.iter.next() {
             None => {
                 if !self.done {

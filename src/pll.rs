@@ -1,5 +1,4 @@
 use crate::filterable::Filter;
-use num_complex::Complex32;
 
 pub struct PllOutput {
     pub out: f32,

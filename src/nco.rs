@@ -67,9 +67,6 @@ impl Nco {
         self.pll_freq += dphi * self.pll_alpha;
         self.phase += dphi * self.pll_beta;
     }
-
-    /// Current PLL frequency correction (radians/sample).
-    pub fn pll_freq(&self) -> f32 { self.pll_freq }
 }
 
 #[cfg(test)]
