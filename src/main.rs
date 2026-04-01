@@ -16,6 +16,7 @@ mod soapy;
 mod fir;
 mod rds_block_sync;
 mod biphase;
+mod chip_sync;
 mod rds_demod;
 
 use std::sync::atomic;
@@ -499,11 +500,8 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wf
     // v2 demod: coarse NCO + decimate 12× + fine Costas + polyphase Gardner
     let mut rds = rds_demod::RdsDemod::new();
 
-    let mut biphase_decoder = biphase::BiphaseDecoder::new();
-    let mut delta_decoder = biphase::DeltaDecoder::new();
-
-    let mut block_sync = rds_block_sync::RdsBlockSync::new(
-        std::iter::empty::<u8>(), 2, 12, debug);
+    // Combined biphase + block sync (dual-phase searching, frozen polarity when locked)
+    let mut chip_sync = chip_sync::ChipSync::new(2, 12, debug);
     let mut decoder = rds_block_sync::RdsDecoder::new();
     let mut display = rds_block_sync::RdsDisplay::new();
     let start_time = std::time::Instant::now();
@@ -518,36 +516,28 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wf
             None => break,
         };
 
-        // Biphase + delta decode
-        let result = biphase_decoder.push(sym);
-        if let Some(bit) = if result.has_value {
-            Some(delta_decoder.decode(result.bit))
-        } else {
-            None
-        } {
-            if let Some(event) = block_sync.push_bit(bit as u8) {
-                match event {
-                    rds_block_sync::SyncEvent::Group(group) => {
-                        let state = decoder.process(&group);
-                        let elapsed = start_time.elapsed().as_secs_f64();
-                        if metrics {
-                            let pi_str = if group.pi_code != 0 { format!("{:04X}", group.pi_code) } else { "0000".to_string() };
-                            eprintln!("RDSMETRIC {{\"t\":{:.3},\"bler\":{:.4},\"groups\":{},\"pi\":\"{}\"}}", elapsed, group.rolling_bler, state.groups_decoded, pi_str);
-                        }
-                        if debug {
-                            let v = if group.version { "B" } else { "A" };
-                            eprintln!("RDS Group {}{}: PI=0x{:04X}  BLER={:.1}%", group.group_type, v, group.pi_code, group.rolling_bler * 100.0);
-                        } else if !metrics {
-                            display.set_synced(true);
-                            display.render(&state);
-                        }
+        if let Some(event) = chip_sync.push_chip(sym) {
+            match event {
+                rds_block_sync::SyncEvent::Group(group) => {
+                    let state = decoder.process(&group);
+                    let elapsed = start_time.elapsed().as_secs_f64();
+                    if metrics {
+                        let pi_str = if group.pi_code != 0 { format!("{:04X}", group.pi_code) } else { "0000".to_string() };
+                        eprintln!("RDSMETRIC {{\"t\":{:.3},\"bler\":{:.4},\"groups\":{},\"pi\":\"{}\"}}", elapsed, group.rolling_bler, state.groups_decoded, pi_str);
                     }
-                    rds_block_sync::SyncEvent::Locked => {
-                        if !metrics && !debug { display.set_synced(true); display.render(&decoder.display_state()); }
+                    if debug {
+                        let v = if group.version { "B" } else { "A" };
+                        eprintln!("RDS Group {}{}: PI=0x{:04X}  BLER={:.1}%", group.group_type, v, group.pi_code, group.rolling_bler * 100.0);
+                    } else if !metrics {
+                        display.set_synced(true);
+                        display.render(&state);
                     }
-                    rds_block_sync::SyncEvent::LostSync | rds_block_sync::SyncEvent::Searching => {
-                        if !metrics && !debug { display.set_synced(false); display.render(&decoder.display_state()); }
-                    }
+                }
+                rds_block_sync::SyncEvent::Locked => {
+                    if !metrics && !debug { display.set_synced(true); display.render(&decoder.display_state()); }
+                }
+                rds_block_sync::SyncEvent::LostSync | rds_block_sync::SyncEvent::Searching => {
+                    if !metrics && !debug { display.set_synced(false); display.render(&decoder.display_state()); }
                 }
             }
         }

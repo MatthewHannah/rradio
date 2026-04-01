@@ -21,7 +21,7 @@ const OFFSET_C:  u16 = 0x168;
 const OFFSET_CP: u16 = 0x350; // C' (used in type B groups)
 const OFFSET_D:  u16 = 0x1B4;
 
-const OFFSETS: [(u16, &str); 5] = [
+pub const OFFSETS: [(u16, &str); 5] = [
     (OFFSET_A,  "A"),
     (OFFSET_B,  "B"),
     (OFFSET_C,  "C"),
@@ -30,11 +30,10 @@ const OFFSETS: [(u16, &str); 5] = [
 ];
 
 /// Block index for each offset in the group sequence
-const BLOCK_FOR_OFFSET: [usize; 5] = [0, 1, 2, 2, 3]; // A=0, B=1, C=2, C'=2, D=3
+pub const BLOCK_FOR_OFFSET: [usize; 5] = [0, 1, 2, 2, 3]; // A=0, B=1, C=2, C'=2, D=3
 
 /// Expected next block offset indices after each block
-/// After A(0) → B(1), after B(1) → C(2) or C'(3), after C/C'(2,3) → D(4), after D(4) → A(0)
-fn expected_next_offsets(current_offset_idx: usize) -> &'static [usize] {
+pub fn expected_next_offsets(current_offset_idx: usize) -> &'static [usize] {
     match current_offset_idx {
         0 => &[1],       // A → B
         1 => &[2, 3],    // B → C or C'
@@ -44,11 +43,11 @@ fn expected_next_offsets(current_offset_idx: usize) -> &'static [usize] {
     }
 }
 
-const SYNC_THRESHOLD: usize = 3;  // consecutive good blocks to lock
+pub const SYNC_THRESHOLD: usize = 3;  // consecutive good blocks to lock
 
 /// Compute CRC-10 syndrome for a 26-bit block using polynomial long division.
 /// For an error-free block, syndrome == offset word for that block type.
-fn syndrome(block: u32) -> u16 {
+pub fn syndrome(block: u32) -> u16 {
     // Treat the 26-bit block as a polynomial and divide by the generator.
     // The remainder after division is the syndrome.
     let mut reg = block;
@@ -62,7 +61,7 @@ fn syndrome(block: u32) -> u16 {
 
 /// Try to match a block's syndrome against expected offsets, with optional error correction.
 /// Returns Some((offset_index, corrected_data)) on success.
-fn check_block(block: u32, expected_offsets: &[usize], max_correction_bits: u32) -> Option<(usize, u16)> {
+pub fn check_block(block: u32, expected_offsets: &[usize], max_correction_bits: u32) -> Option<(usize, u16)> {
     let syn = syndrome(block);
 
     // First try exact match (no errors)
