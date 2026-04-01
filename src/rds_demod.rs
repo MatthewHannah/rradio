@@ -20,7 +20,7 @@ const COSTAS_MAX_FREQ_HZ: f32 = 100.0;
 // Timing loop
 const TIMING_BN_HZ: f32 = 25.0;
 const TIMING_DAMPING: f32 = 1.0;
-const TIMING_K_TED: f32 = 0.617;     // Gardner S-curve slope: 3.70 / SPS
+const TIMING_K_TED: f32 = 0.6152;     // Gardner S-curve slope: 3.69 / SPS
 const TIMING_NFILTERS: usize = 16;
 const TIMING_TAPS_PER_ARM: usize = 8;
 
