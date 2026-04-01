@@ -475,15 +475,20 @@ fn write_wav<I>(samples: I, path: &str, fs: u32) where I: Iterator<Item = f32> {
     eprintln!("Wrote {} samples ({:.1}s) to {}", count, count as f64 / (fs as f64 * 2.0), path);
 }
 
-fn rds_pipeline_v5(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wfm_fs: f32, debug: bool, metrics: bool) {
+fn get_ratio(old: f32, new: f32) -> (usize, usize) {
+    let lcm = (old as u64).lcm(&(new as u64));
+    let up = lcm / (old as u64);
+    let down = lcm / (new as u64);
+    (up as usize, down as usize)
+}
+
+fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wfm_fs: f32, debug: bool, metrics: bool) {
     let iterable = buffer::RecvBufIter::new(rds_rx);
 
     // Stage 1: resample 240k → 171k (same as v4)
     let stage1_target_fs: f32 = 57e3 * 3.0;
-    let wfm_fs_u64 = wfm_fs as u64;
-    let lcm = (stage1_target_fs as u64).lcm(&wfm_fs_u64) as f64;
-    let stage1_up = (lcm / (wfm_fs as f64)) as usize;
-    let stage1_down = (lcm / (stage1_target_fs as f64)) as usize;
+
+    let (stage1_up, stage1_down) = get_ratio(wfm_fs, stage1_target_fs);
     let up_fs = wfm_fs * (stage1_up as f32);
 
     println!("v5 pipeline: resample {} → {} (up {} down {})", wfm_fs, stage1_target_fs, stage1_up, stage1_down);
@@ -492,7 +497,7 @@ fn rds_pipeline_v5(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>,
         .resample(fir::generate_lowpass_taps(up_fs as f64, 80e3, 255, &fir::WindowType::Blackman), stage1_up, stage1_down);
 
     // v2 demod: coarse NCO + decimate 12× + fine Costas + polyphase Gardner
-    let mut rds = rds_demod::RdsDemodV2::new();
+    let mut rds = rds_demod::RdsDemod::new();
 
     let mut biphase_decoder = biphase::BiphaseDecoder::new();
     let mut delta_decoder = biphase::DeltaDecoder::new();
@@ -502,8 +507,6 @@ fn rds_pipeline_v5(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>,
     let mut decoder = rds_block_sync::RdsDecoder::new();
     let mut display = rds_block_sync::RdsDisplay::new();
     let start_time = std::time::Instant::now();
-
-    let mut chip_idx: u64 = 0;
 
     loop {
         if done.load(atomic::Ordering::SeqCst) {
@@ -548,8 +551,6 @@ fn rds_pipeline_v5(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>,
                 }
             }
         }
-
-        chip_idx += 1;
     }
 
     if metrics {
@@ -688,7 +689,7 @@ fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::Ato
     // Thread 3: RDS consumer
     let done_ref = done_sig.clone();
     let rds_thread = std::thread::spawn(move || {
-        rds_pipeline_v5(&done_ref, rds_rx, wfm_fs, rds_debug, rds_metrics);
+        rds_pipeline(&done_ref, rds_rx, wfm_fs, rds_debug, rds_metrics);
     });
 
     // Main thread: Audio consumer (downsample + interleave + output)

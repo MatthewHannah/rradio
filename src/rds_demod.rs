@@ -357,7 +357,7 @@ impl PolyphaseGardner {
 }
 
 // ── Top-level demodulator ──
-pub struct RdsDemodV2 {
+pub struct RdsDemod {
     coarse_nco: CoarseNco,
     downsampler: RationalResampler<Complex32>,
     costas: FineCostas,
@@ -365,13 +365,13 @@ pub struct RdsDemodV2 {
     gardner: PolyphaseGardner,
 }
 
-impl RdsDemodV2 {
+impl RdsDemod {
     pub fn new() -> Self {
         let downsample_filter = fir::generate_lowpass_taps(
             171e3, 2500.0, 1001, &fir::WindowType::Blackman,
         );
 
-        RdsDemodV2 {
+        RdsDemod {
             coarse_nco: CoarseNco::new(57e3, 171e3),
             downsampler: RationalResampler::new(downsample_filter, 1, PRE_DECIMATE),
             costas: FineCostas::new(),
