@@ -12,8 +12,9 @@ pub struct WidebandFmAudio<I> {
 
 #[derive(Debug, Copy, Clone)]
 pub struct WidebandFmAudioOutput {
-    pub left: f32, pub right: f32, pub rds: Complex32,
-    pub stereo_lock: f32, pub rds_lock: f32,
+    pub left: f32,
+    pub right: f32,
+    pub stereo_lock: f32,
     pub mpx: f32,
 }
 
@@ -28,10 +29,10 @@ impl<I> WidebandFmAudio<I> where I: Iterator<Item = f32> {
     }
     fn process(&mut self, s: f32) -> WidebandFmAudioOutput {
         let mono = s;
-        let StereoDownmixerOutput { stereo, rds, stereo_lock, rds_lock } = self.downmix.process(s);
+        let StereoDownmixerOutput { stereo, stereo_lock } = self.downmix.process(s);
         let l = self.l_audio_filt.process(self.l_deemph.process(mono + stereo));
         let r = self.r_audio_filt.process(self.r_deemph.process(mono - stereo));
-        WidebandFmAudioOutput { left: l, right: r, rds, stereo_lock, rds_lock, mpx: s }
+        WidebandFmAudioOutput { left: l, right: r, stereo_lock, mpx: s }
     }
 }
 impl<I> Iterator for WidebandFmAudio<I> where I: Iterator<Item = f32> {
@@ -47,21 +48,17 @@ impl <I> WidebandFmAudioIterable for I where I: Iterator<Item = f32> {
 
 struct StereoDownmixer {
     pll: RealPll<Biquad<f32>>,
-    pll_rds: RealPll<Biquad<f32>>,
 }
-struct StereoDownmixerOutput { stereo: f32, rds: Complex32, stereo_lock: f32, rds_lock: f32 }
+struct StereoDownmixerOutput { stereo: f32, stereo_lock: f32 }
+
 impl StereoDownmixer {
     fn new(fs: f32) -> Self {
         let pll_loop_filt = Biquad::lowpass(fs, 1000.0, 0.707);
         let pll = RealPll::new(38e3, fs, 0.05, pll_loop_filt, 2.0);
-        let pll_rds_loop_filt = Biquad::lowpass(fs, 1000.0, 0.707);
-        let pll_rds = RealPll::new(57e3, fs, 0.05, pll_rds_loop_filt, 3.0);
-        StereoDownmixer { pll, pll_rds }
+        StereoDownmixer { pll }
     }
     fn process(&mut self, s: f32) -> StereoDownmixerOutput {
         let pll_out = self.pll.process(s);
-        let rds_out = self.pll_rds.process_complex(s);
-        let rds = rds_out.out * s;
-        StereoDownmixerOutput { stereo: pll_out.out * s, rds, stereo_lock: pll_out.lock, rds_lock: rds_out.lock }
+        StereoDownmixerOutput { stereo: pll_out.out * s, stereo_lock: pll_out.lock }
     }
 }
