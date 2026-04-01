@@ -22,7 +22,7 @@ mod nco;
 mod biphase;
 mod psk_modem;
 mod symsync;
-mod rds_demod_v2;
+mod rds_demod;
 
 use std::sync::atomic;
 use std::sync::Arc;
@@ -499,7 +499,7 @@ fn rds_pipeline_v5(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>,
         .resample(rds_taps::generate_lowpass_taps(up_fs as f64, 80e3, 255, &rds_taps::WindowType::Blackman), stage1_up, stage1_down);
 
     // v2 demod: coarse NCO + decimate 12× + fine Costas + polyphase Gardner
-    let mut rds = rds_demod_v2::RdsDemodV2::new();
+    let mut rds = rds_demod::RdsDemodV2::new();
 
     let mut biphase_decoder = biphase::BiphaseDecoder::new();
     let mut delta_decoder = biphase::DeltaDecoder::new();
