@@ -103,9 +103,11 @@ impl<Num: Filterable<Num>> RationalResampler<Num> {
         let arm_len = (prototype.len() + l - 1) / l;
 
         // Phase k gets taps[k], taps[k+L], taps[k+2L], ...
+        // Stored reversed so compute() is a forward dot product over
+        // the oldest-to-newest doubled buffer.
         let mut phases = Vec::with_capacity(l);
         for k in 0..l {
-            let arm: Vec<f32> = (0..arm_len)
+            let mut arm: Vec<f32> = (0..arm_len)
                 .map(|i| {
                     let idx = k + i * l;
                     if idx < prototype.len() {
@@ -115,16 +117,17 @@ impl<Num: Filterable<Num>> RationalResampler<Num> {
                     }
                 })
                 .collect();
+            arm.reverse();
             phases.push(arm);
         }
 
         RationalResampler {
             phases,
             arm_len,
-            buffer: vec![Num::zero(); arm_len],
+            buffer: vec![Num::zero(); arm_len * 2], // doubled for contiguous access
             write_pos: 0,
             phase: 0,
-            next_advance: arm_len, // prime the buffer on first output
+            next_advance: arm_len,
             l,
             m,
         }
@@ -133,16 +136,17 @@ impl<Num: Filterable<Num>> RationalResampler<Num> {
     #[inline]
     fn push(&mut self, sample: Num) {
         self.buffer[self.write_pos] = sample;
+        self.buffer[self.write_pos + self.arm_len] = sample;
         self.write_pos = (self.write_pos + 1) % self.arm_len;
     }
 
     #[inline]
     fn compute(&self) -> Num {
         let arm = &self.phases[self.phase];
+        let start = self.write_pos; // oldest sample in doubled layout
         let mut sum = Num::zero();
         for i in 0..self.arm_len {
-            let idx = (self.write_pos + self.arm_len - 1 - i) % self.arm_len;
-            sum = sum + self.buffer[idx] * arm[i];
+            sum = sum + self.buffer[start + i] * arm[i];
         }
         sum
     }
