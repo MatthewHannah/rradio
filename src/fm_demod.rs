@@ -1,16 +1,12 @@
-use crate::filterable::Filter;
-
 use num_complex::Complex32;
 
-pub struct FmDemodulator<F: Filter<f32>> {
-    loop_filter: F,
+pub struct FmDemodulator {
     last_phase: f32,
 }
 
-impl<F: Filter<f32>> FmDemodulator<F> {
-    pub fn new(loop_filter: F) -> Self {
+impl FmDemodulator {
+    pub fn new() -> Self {
         FmDemodulator {
-            loop_filter,
             last_phase: 0.0,
         }
     }
@@ -24,25 +20,25 @@ impl<F: Filter<f32>> FmDemodulator<F> {
             delta += 2.0 * std::f32::consts::PI;
         }
         self.last_phase = phase;
-        self.loop_filter.process(delta)
+        delta
     }
 }
 
-pub struct FmDemodIter<I, F: Filter<f32>> {
+pub struct FmDemodIter<I> {
     iter: I,
-    demodulator: FmDemodulator<F>,
+    demodulator: FmDemodulator,
 }
 
-impl<I, F: Filter<f32>> FmDemodIter<I, F> where I: Iterator<Item = Complex32> {
-    pub fn new(iter: I, loop_filter: F) -> Self {
+impl<I> FmDemodIter<I> where I: Iterator<Item = Complex32> {
+    pub fn new(iter: I) -> Self {
         FmDemodIter {
             iter,
-            demodulator: FmDemodulator::new(loop_filter),
+            demodulator: FmDemodulator::new(),
         }
     }
 }
 
-impl<I, F: Filter<f32>> Iterator for FmDemodIter<I, F> where I: Iterator<Item = Complex32> {
+impl<I> Iterator for FmDemodIter<I> where I: Iterator<Item = Complex32> {
     type Item = f32;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -52,11 +48,11 @@ impl<I, F: Filter<f32>> Iterator for FmDemodIter<I, F> where I: Iterator<Item = 
 }
 
 pub trait FmDemodulatable {
-    fn fm_demodulate<F: Filter<f32>>(self, loop_filter: F) -> FmDemodIter<Self, F> where Self: Sized;
+    fn fm_demodulate(self) -> FmDemodIter<Self> where Self: Sized;
 }
 
 impl<I> FmDemodulatable for I where I: Iterator<Item = Complex32> {
-    fn fm_demodulate<F: Filter<f32>>(self, loop_filter: F) -> FmDemodIter<Self, F> {
-        FmDemodIter::new(self, loop_filter)
+    fn fm_demodulate(self) -> FmDemodIter<Self> {
+        FmDemodIter::new(self)
     }
 }

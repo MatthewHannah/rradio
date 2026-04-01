@@ -346,10 +346,12 @@ fn signal_pipeline(
         spectrogram(8192, 512, fs_spy, &audio_samples);
     }, obs_settings.spy_iq);
 
-    // FM demodulation + downsample
+    // FM demodulation + decimating FIR
     let fm_filt = biquad::Biquad::lowpass(fs, 80000.0, 0.707);
-    let fm_loop_filt = biquad::Biquad::lowpass(fs, 80000.0, 0.707);
-    let demoded = resampled.dsp_filter(fm_filt).fm_demodulate(fm_loop_filt).downsample(settings.fm_demod_downsample);
+    let fm_decim_taps: Vec<f32> = rds_taps::generate_lowpass_taps(
+        fs as f64, 80_000.0, 31, &rds_taps::WindowType::Blackman,
+    );
+    let demoded = resampled.dsp_filter(fm_filt).fm_demodulate().resample(fm_decim_taps, 1, settings.fm_demod_downsample);
     let _fs = fs / (settings.fm_demod_downsample as f32);
 
     let fs_spy = _fs;
