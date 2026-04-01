@@ -645,7 +645,7 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wf
     let mut decimator = resample::RationalResampler::<Complex32>::new(lpf_taps, 1, DECIMATE_RATIO);
 
     // === AGC (liquid-dsp compatible) ===
-    let mut agc = agc::Agc::new_liquid(AGC_BW, AGC_INITIAL_GAIN);
+    let mut agc = agc::Agc::new(AGC_BW, AGC_INITIAL_GAIN);
 
     // === SymSync: polyphase filterbank clock recovery ===
     let mut symsync = symsync::SymSync::new(SAMPLES_PER_SYMBOL, SYMSYNC_DELAY, SYMSYNC_BETA, SYMSYNC_NPFB);

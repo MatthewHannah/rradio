@@ -8,7 +8,6 @@
 /// Supports both real (f32) and complex (Complex32) operation.
 
 use crate::filterable::Filter;
-use crate::rds_config::AgcConfig;
 use num_complex::Complex32;
 
 pub struct Agc {
@@ -23,23 +22,12 @@ impl Agc {
     ///
     /// * `alpha` — normalized bandwidth (0..1), controls tracking speed
     /// * `initial_gain` — starting gain value
-    pub fn new_liquid(alpha: f32, initial_gain: f32) -> Self {
+    pub fn new(alpha: f32, initial_gain: f32) -> Self {
         Agc {
             gain: initial_gain,
             power_estimate: 1.0,
             alpha: alpha.clamp(0.0, 1.0),
             scale: 1.0,
-        }
-    }
-
-    /// Create AGC from AgcConfig (backward compatible).
-    pub fn new(sample_rate: f32, config: &AgcConfig) -> Self {
-        let alpha = 2.0 * std::f32::consts::PI * config.bandwidth_hz / sample_rate;
-        Agc {
-            gain: 1.0,
-            power_estimate: 0.0,
-            alpha: alpha.clamp(0.0, 1.0),
-            scale: config.target_rms,
         }
     }
 
@@ -80,7 +68,7 @@ mod tests {
 
     #[test]
     fn test_converges_to_target() {
-        let mut agc = Agc::new(9600.0, &AgcConfig { bandwidth_hz: 50.0, target_rms: 1.0 });
+        let mut agc = Agc::new(0.03, 1.0);
         let input_amp = 0.1;
         let mut last_output = 0.0;
         for i in 0..5000 {
@@ -95,7 +83,7 @@ mod tests {
 
     #[test]
     fn test_attenuates_strong_signal() {
-        let mut agc = Agc::new(9600.0, &AgcConfig { bandwidth_hz: 50.0, target_rms: 1.0 });
+        let mut agc = Agc::new(0.03, 1.0);
         let input_amp = 10.0;
         let mut last_output = 0.0;
         for i in 0..5000 {
@@ -110,7 +98,7 @@ mod tests {
 
     #[test]
     fn test_handles_zero_input() {
-        let mut agc = Agc::new(9600.0, &AgcConfig { bandwidth_hz: 50.0, target_rms: 1.0 });
+        let mut agc = Agc::new(0.03, 1.0);
         for _ in 0..1000 {
             let out = agc.process(0.0);
             assert!(out.is_finite(), "Output should be finite, got {}", out);
@@ -120,7 +108,7 @@ mod tests {
 
     #[test]
     fn test_tracks_amplitude_step() {
-        let mut agc = Agc::new(9600.0, &AgcConfig { bandwidth_hz: 50.0, target_rms: 1.0 });
+        let mut agc = Agc::new(0.03, 1.0);
         for i in 0..5000 {
             let x = 0.5 * if i % 4 < 2 { 1.0 } else { -1.0 };
             agc.process(x);
@@ -133,21 +121,6 @@ mod tests {
         assert!(
             (last_output - 1.0).abs() < 0.3,
             "After step, expected output near 1.0, got {}", last_output
-        );
-    }
-
-    #[test]
-    fn test_liquid_style_agc() {
-        let mut agc = Agc::new_liquid(0.01, 0.08);
-        let input_amp = 0.5;
-        let mut last_output = 0.0;
-        for i in 0..10000 {
-            let x = input_amp * if i % 4 < 2 { 1.0 } else { -1.0 };
-            last_output = agc.process(x).abs();
-        }
-        assert!(
-            (last_output - 1.0).abs() < 0.3,
-            "liquid AGC: expected output near 1.0, got {}", last_output
         );
     }
 }
