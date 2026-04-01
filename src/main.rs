@@ -15,7 +15,6 @@ mod buffer;
 mod soapy;
 mod fir;
 mod rds_block_sync;
-mod rds_config;
 mod agc;
 mod nco;
 mod biphase;
@@ -39,7 +38,6 @@ use crate::filterable::FilterableIter;
 use crate::fm_demod::FmDemodulatable;
 use crate::interleaver::InterleaveableIter;
 use crate::rds_block_sync::RdsBlockSyncable;
-use crate::rds_config::CostasConfig;
 use crate::resample::{Downsampleable, RationalResampleable};
 use crate::spy::SpyableIter;
 use crate::wideband_fm_audio::WidebandFmAudioIterable;
@@ -481,7 +479,7 @@ fn write_wav<I>(samples: I, path: &str, fs: u32) where I: Iterator<Item = f32> {
     eprintln!("Wrote {} samples ({:.1}s) to {}", count, count as f64 / (fs as f64 * 2.0), path);
 }
 
-fn rds_pipeline_v5(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wfm_fs: f32, config: &rds_config::RdsConfig, debug: bool, metrics: bool) {
+fn rds_pipeline_v5(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wfm_fs: f32, debug: bool, metrics: bool) {
     let iterable = buffer::RecvBufIter::new(rds_rx);
 
     // Stage 1: resample 240k → 171k (same as v4)
@@ -504,7 +502,7 @@ fn rds_pipeline_v5(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>,
     let mut delta_decoder = biphase::DeltaDecoder::new();
 
     let mut block_sync = rds_block_sync::RdsBlockSync::new(
-        std::iter::empty::<u8>(), &config.sync, debug);
+        std::iter::empty::<u8>(), 2, 12, debug);
     let mut decoder = rds_block_sync::RdsDecoder::new();
     let mut display = rds_block_sync::RdsDisplay::new();
     let start_time = std::time::Instant::now();
@@ -608,7 +606,7 @@ const RDS_FS: f32 = 19000.0;          // final RDS sample rate
 /// Exact replication of windytan/redsea's DSP chain using liquid-dsp algorithms:
 ///   Resample -> NCO 57kHz (PLL) -> FIR LPF 2400Hz -> div24 -> AGC -> SymSync
 ///   -> Modem phase error -> PLL feedback -> Biphase -> Delta -> Block sync
-fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wfm_fs: f32, config: &rds_config::RdsConfig, debug: bool, metrics: bool, diag_path: Option<&str>) {
+fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wfm_fs: f32, debug: bool, metrics: bool, diag_path: Option<&str>) {
     // === REDSEA CONSTANTS ===
     const TARGET_FS: f32 = 171_000.0;
     const BITS_PER_SECOND: f32 = 1187.5;
@@ -659,7 +657,7 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wf
 
     // === Block Sync ===
     let mut block_sync = rds_block_sync::RdsBlockSync::new(
-        std::iter::empty::<u8>(), &config.sync, debug);
+        std::iter::empty::<u8>(), 2, 12, debug);
     let mut decoder = rds_block_sync::RdsDecoder::new();
     let mut display = rds_block_sync::RdsDisplay::new();
     let start_time = std::time::Instant::now();
@@ -841,7 +839,7 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wf
     }
 }
 
-fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::AtomicBool>, obs_settings: AudioPipelineObservationSettings, rds_debug: bool, rds_metrics: bool, record_path: Option<String>, rds_config: rds_config::RdsConfig, mpx_path: Option<String>, diag_path: Option<String>) {
+fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::AtomicBool>, obs_settings: AudioPipelineObservationSettings, rds_debug: bool, rds_metrics: bool, record_path: Option<String>, mpx_path: Option<String>, diag_path: Option<String>) {
     let fs = match &iq_source {
         IqSource::Pluto { config } => config.fs,
         IqSource::Soapy { config } => config.fs,
@@ -967,14 +965,13 @@ fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::Ato
 
     // Thread 3: RDS consumer
     let done_ref = done_sig.clone();
-    let rds_config2 = rds_config;
     let rds_thread = std::thread::spawn(move || {
         // Toggle: USE_REDSEA for redsea pipeline, default = v5
         let use_redsea = std::env::var("USE_REDSEA").is_ok();
         if use_redsea {
-            rds_pipeline(&done_ref, rds_rx, wfm_fs, &rds_config2, rds_debug, rds_metrics, diag_path.as_deref());
+            rds_pipeline(&done_ref, rds_rx, wfm_fs, rds_debug, rds_metrics, diag_path.as_deref());
         } else {
-            rds_pipeline_v5(&done_ref, rds_rx, wfm_fs, &rds_config2, rds_debug, rds_metrics);
+            rds_pipeline_v5(&done_ref, rds_rx, wfm_fs, rds_debug, rds_metrics);
         }
     });
 
@@ -1022,7 +1019,6 @@ fn main() {
     let mut wav_path: Option<String> = None;
     let mut rds_debug = false;
     let mut rds_metrics = false;
-    let mut rds_config_path: Option<String> = None;
     let mut record_path: Option<String> = None;
     let mut mpx_path: Option<String> = None;
     let mut diag_path: Option<String> = None;
@@ -1038,9 +1034,6 @@ fn main() {
         } else if args[i] == "--rds-metrics" {
             rds_metrics = true;
             i += 1;
-        } else if args[i] == "--rds-config" {
-            rds_config_path = Some(args.get(i + 1).expect("Usage: --rds-config <path>").clone());
-            i += 2;
         } else if args[i] == "--record" {
             record_path = Some(args.get(i + 1).expect("Usage: --record <path>").clone());
             i += 2;
@@ -1059,12 +1052,6 @@ fn main() {
             i += 1;
         }
     }
-
-    // Load RDS config
-    let rds_config = match rds_config_path {
-        Some(path) => rds_config::RdsConfig::from_file(&path).expect("Failed to load RDS config"),
-        None => rds_config::RdsConfig::default(),
-    };
 
     // Duration timer: spawn a thread that sets done after the specified time
     if let Some(secs) = duration_secs {
@@ -1091,7 +1078,7 @@ fn main() {
                 * 1e3;
             let streamer = sigmf::SigmfStreamer::new(path).expect("Failed to open SigMF file");
             let source = IqSource::Sigmf { streamer, tune_offset };
-            run(source, audio_output, done_sig, obs_settings, rds_debug, rds_metrics, record_path, rds_config.clone(), mpx_path.clone(), diag_path.clone());
+            run(source, audio_output, done_sig, obs_settings, rds_debug, rds_metrics, record_path, mpx_path.clone(), diag_path.clone());
         }
         Some("soapy") => {
             let filter = pos.next().expect("Usage: rradio soapy <filter> [station_mhz]");
@@ -1105,7 +1092,7 @@ fn main() {
                 bw: 200e6,
                 fs: 2.4e6,
             };
-            run(IqSource::Soapy { config }, audio_output, done_sig, obs_settings, rds_debug, rds_metrics, record_path, rds_config.clone(), mpx_path.clone(), diag_path.clone());
+            run(IqSource::Soapy { config }, audio_output, done_sig, obs_settings, rds_debug, rds_metrics, record_path, mpx_path.clone(), diag_path.clone());
         }
         Some("pluto") => {
             let station: f32 = pos.next()
@@ -1118,7 +1105,7 @@ fn main() {
                 bw: 200e6,
                 fs: 2.4e6,
             };
-            run(IqSource::Pluto { config }, audio_output, done_sig, obs_settings, rds_debug, rds_metrics, record_path, rds_config.clone(), mpx_path.clone(), diag_path.clone());
+            run(IqSource::Pluto { config }, audio_output, done_sig, obs_settings, rds_debug, rds_metrics, record_path, mpx_path.clone(), diag_path.clone());
         }
         _ => {
             eprintln!("Usage: rradio <source> [options] [--wav <output.wav>]");

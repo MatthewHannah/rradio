@@ -2,7 +2,6 @@
 ///
 /// Consumes a bitstream (Iterator<Item = u8>) and yields decoded RDS groups.
 
-use crate::rds_config::SyncConfig;
 ///
 /// The RDS bitstream is structured as:
 ///   - Blocks of 26 bits: 16 data + 10 check (CRC + offset word)
@@ -150,7 +149,7 @@ const BLER_WINDOW: usize = 200;
 const SEARCHING_REPORT_INTERVAL: usize = 1187; // ~1 second of bits
 
 impl<I: Iterator<Item = u8>> RdsBlockSync<I> {
-    pub fn new(iter: I, config: &SyncConfig, debug: bool) -> Self {
+    pub fn new(iter: I, crc_correction_max_bits: u32, loss_threshold: usize, debug: bool) -> Self {
         RdsBlockSync {
             iter,
             shift_reg: 0,
@@ -164,8 +163,8 @@ impl<I: Iterator<Item = u8>> RdsBlockSync<I> {
             consecutive_bad: 0,
             synced_groups: 0,
             debug,
-            loss_threshold: config.loss_threshold,
-            crc_max_bits: config.crc_correction_max_bits,
+            loss_threshold,
+            crc_max_bits: crc_correction_max_bits,
             total_blocks_checked: 0,
             total_blocks_passed: 0,
             bler_history: vec![false; BLER_WINDOW],
@@ -384,14 +383,14 @@ impl<I: Iterator<Item = u8>> Iterator for RdsBlockSync<I> {
 }
 
 pub trait RdsBlockSyncable {
-    fn rds_block_sync(self, config: &SyncConfig, debug: bool) -> RdsBlockSync<Self>
+    fn rds_block_sync(self, crc_correction_max_bits: u32, loss_threshold: usize, debug: bool) -> RdsBlockSync<Self>
     where
         Self: Sized + Iterator<Item = u8>;
 }
 
 impl<I: Iterator<Item = u8>> RdsBlockSyncable for I {
-    fn rds_block_sync(self, config: &SyncConfig, debug: bool) -> RdsBlockSync<Self> {
-        RdsBlockSync::new(self, config, debug)
+    fn rds_block_sync(self, crc_correction_max_bits: u32, loss_threshold: usize, debug: bool) -> RdsBlockSync<Self> {
+        RdsBlockSync::new(self, crc_correction_max_bits, loss_threshold, debug)
     }
 }
 
@@ -653,7 +652,7 @@ mod tests {
         }
 
         let bits = blocks_to_bits(&blocks);
-        let groups: Vec<RdsGroup> = bits.into_iter().rds_block_sync(&SyncConfig::default(), false).filter_map(|e| match e { SyncEvent::Group(g) => Some(g), _ => None }).collect();
+        let groups: Vec<RdsGroup> = bits.into_iter().rds_block_sync(2, 12, false).filter_map(|e| match e { SyncEvent::Group(g) => Some(g), _ => None }).collect();
 
         assert!(!groups.is_empty(), "Should decode at least one group");
 
@@ -686,7 +685,7 @@ mod tests {
             bits.extend(blocks_to_bits(&blocks));
         }
 
-        let groups: Vec<RdsGroup> = bits.into_iter().rds_block_sync(&SyncConfig::default(), false).filter_map(|e| match e { SyncEvent::Group(g) => Some(g), _ => None }).collect();
+        let groups: Vec<RdsGroup> = bits.into_iter().rds_block_sync(2, 12, false).filter_map(|e| match e { SyncEvent::Group(g) => Some(g), _ => None }).collect();
         assert!(groups.len() >= 2, "Should recover sync and decode groups after noise, got {}", groups.len());
     }
 }
