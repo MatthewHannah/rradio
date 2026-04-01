@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use num_complex::Complex32;
 
-use crate::{rds_taps, resample::RationalResampler};
+use crate::{fir, resample::RationalResampler};
 
 // ── Constants ──
 const R_CHIP: f32 = 2375.0;
@@ -95,7 +95,7 @@ struct FineCostas {
 
 impl FineCostas {
     fn new() -> Self {
-        let h_rrc = rds_taps::generate_rrc_taps(
+        let h_rrc = fir::generate_rrc_taps(
             F_BASE as f64 * 1.0, // fs = F_BASE (SPS is already set by the rate)
             R_CHIP as f64,
             RRC_ALPHA,
@@ -105,7 +105,7 @@ impl FineCostas {
         // fs = 14250, symbol_rate = 2375, beta = 0.8, num_symbols = 3
         // This gives taps at SPS = 14250/2375 = 6, span = ±3 chips
         // len = 2*3*6+1 = 37 taps
-        let h_rrc = rds_taps::generate_rrc_taps(
+        let h_rrc = fir::generate_rrc_taps(
             F_BASE as f64, R_CHIP as f64, RRC_ALPHA, RRC_SPAN,
         );
         let rrc_len = h_rrc.len();
@@ -367,8 +367,8 @@ pub struct RdsDemodV2 {
 
 impl RdsDemodV2 {
     pub fn new() -> Self {
-        let downsample_filter = rds_taps::generate_lowpass_taps(
-            171e3, 2500.0, 1001, &rds_taps::WindowType::Blackman,
+        let downsample_filter = fir::generate_lowpass_taps(
+            171e3, 2500.0, 1001, &fir::WindowType::Blackman,
         );
 
         RdsDemodV2 {

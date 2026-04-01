@@ -16,7 +16,6 @@ mod soapy;
 mod fir;
 mod rds_block_sync;
 mod rds_config;
-mod rds_taps;
 mod agc;
 mod nco;
 mod biphase;
@@ -345,8 +344,8 @@ fn signal_pipeline(
 
     // FM demodulation + decimating FIR
     let fm_filt = biquad::Biquad::lowpass(fs, 80000.0, 0.707);
-    let fm_decim_taps: Vec<f32> = rds_taps::generate_lowpass_taps(
-        fs as f64, 80_000.0, 31, &rds_taps::WindowType::Blackman,
+    let fm_decim_taps: Vec<f32> = fir::generate_lowpass_taps(
+        fs as f64, 80_000.0, 31, &fir::WindowType::Blackman,
     );
     let demoded = resampled.dsp_filter(fm_filt).fm_demodulate().resample(fm_decim_taps, 1, settings.fm_demod_downsample);
     let _fs = fs / (settings.fm_demod_downsample as f32);
@@ -496,7 +495,7 @@ fn rds_pipeline_v5(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>,
     println!("v5 pipeline: resample {} → {} (up {} down {})", wfm_fs, stage1_target_fs, stage1_up, stage1_down);
 
     let mut base = iterable
-        .resample(rds_taps::generate_lowpass_taps(up_fs as f64, 80e3, 255, &rds_taps::WindowType::Blackman), stage1_up, stage1_down);
+        .resample(fir::generate_lowpass_taps(up_fs as f64, 80e3, 255, &fir::WindowType::Blackman), stage1_up, stage1_down);
 
     // v2 demod: coarse NCO + decimate 12× + fine Costas + polyphase Gardner
     let mut rds = rds_demod::RdsDemodV2::new();
@@ -632,7 +631,7 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wf
     let resamp_m = 80_usize;
     let proto_fs = resamp_l as f64 * wfm_fs as f64;
     let proto_cutoff = TARGET_FS as f64 / 2.0;
-    let mut resamp_taps = rds_taps::generate_lowpass_taps(proto_fs, proto_cutoff, 570, &rds_taps::WindowType::Blackman);
+    let mut resamp_taps = fir::generate_lowpass_taps(proto_fs, proto_cutoff, 570, &fir::WindowType::Blackman);
     for t in resamp_taps.iter_mut() { *t *= resamp_l as f32; }
     let mut resampler = resample::RationalResampler::<f32>::new(resamp_taps, resamp_l, resamp_m);
 
@@ -640,7 +639,7 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wf
     let mut nco = nco::Nco::new(57000.0, TARGET_FS, PLL_BW_HZ, CHIP_RATE);
 
     // === Polyphase decimator: LPF + ÷24 in one step (L=1, M=24) ===
-    let mut lpf_taps = rds_taps::generate_lowpass_taps(TARGET_FS as f64, 2400.0, LPF_LEN, &rds_taps::WindowType::Blackman);
+    let mut lpf_taps = fir::generate_lowpass_taps(TARGET_FS as f64, 2400.0, LPF_LEN, &fir::WindowType::Blackman);
     let fir_scale = 2.0 * LPF_CUTOFF;
     for t in lpf_taps.iter_mut() { *t *= fir_scale; }  // bake scale into taps
     let mut decimator = resample::RationalResampler::<Complex32>::new(lpf_taps, 1, DECIMATE_RATIO);
