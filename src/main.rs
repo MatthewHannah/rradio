@@ -22,10 +22,7 @@ mod nco;
 mod biphase;
 mod psk_modem;
 mod symsync;
-mod symbolsync;
-mod rds_demod;
 mod rds_demod_v2;
-mod pi_loop;
 
 use std::sync::atomic;
 use std::sync::Arc;
@@ -570,130 +567,6 @@ fn rds_pipeline_v5(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>,
     }
 }
 
-fn rds_pipeline_v4(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wfm_fs: f32, config: &rds_config::RdsConfig, debug: bool, metrics: bool, diag_path: Option<&str>) {
-    let iterable = buffer::RecvBufIter::new(rds_rx);
-
-    let stage1_target_fs: f32 = 57e3 * 3.0;
-    let wfm_fs_u64 = wfm_fs as u64;
-    let lcm = (stage1_target_fs as u64).lcm(&wfm_fs_u64) as f64;
-    let stage1_up = (lcm / (wfm_fs as f64)) as usize;
-    let stage1_down = (lcm / (stage1_target_fs as f64)) as usize;
-    let up_fs = wfm_fs * (stage1_up as f32);
-
-    println!("Stage 1 resample: {} → {} (up {} down {})", wfm_fs, stage1_target_fs, stage1_up, stage1_down);
-
-    let mut base = iterable
-        .resample(rds_taps::generate_lowpass_taps(up_fs as f64, 80e3, 255, &rds_taps::WindowType::Blackman), stage1_up, stage1_down);
-
-    let mut rds = rds_demod::RdsDemod::new();
-
-    let mut biphase_decoder = biphase::BiphaseDecoder::new();
-    let mut delta_decoder = biphase::DeltaDecoder::new();
-
-    let mut block_sync = rds_block_sync::RdsBlockSync::new(
-        std::iter::empty::<u8>(), &config.sync, debug);
-    let mut decoder = rds_block_sync::RdsDecoder::new();
-    let mut display = rds_block_sync::RdsDisplay::new();
-    let start_time = std::time::Instant::now();
-
-    let mut constellation: Vec<Complex32> = vec![];
-    let mut constellation_num = 0;
-
-    // Diagnostic output: per-chip CSV of loop internals
-    let mut diag_writer = diag_path.map(|path| {
-        let mut w = std::io::BufWriter::new(std::fs::File::create(path).expect("Failed to create diag file"));
-        use std::io::Write;
-        writeln!(w, "chip,mf_re,mf_im,costas_phase_err,costas_freq,timing_period,timing_avg_period,agc_gain,input_power,ds_power,bit,data_bit").unwrap();
-        w
-    });
-    let mut chip_idx: u64 = 0;
-
-    loop {
-        if done.load(atomic::Ordering::SeqCst) {
-            break;
-        }
-
-        let (sym, diag) = if diag_writer.is_some() {
-            match rds.next_diag(&mut base) {
-                Some((s, d)) => (s, Some(d)),
-                None => break,
-            }
-        } else {
-            match rds.next(&mut base) {
-                Some(s) => (s, None),
-                None => break,
-            }
-        };
-
-        // Feedforward timing slip info to biphase decoder
-        biphase_decoder.notify_timing_adjust(
-            rds.symbol_sync.last_samples_consumed,
-            rds.symbol_sync.nominal_sps,
-        );
-
-        // Biphase + delta decode
-        let result = biphase_decoder.push(sym);
-        let data_bit = if result.has_value {
-            Some(delta_decoder.decode(result.bit))
-        } else {
-            None
-        };
-
-        if let (Some(w), Some(d)) = (&mut diag_writer, diag) {
-            use std::io::Write;
-            let biphase_bit: i8 = if result.has_value { if result.bit { 1 } else { 0 } } else { -1 };
-            let data_bit_val: i8 = data_bit.map(|b| b as i8).unwrap_or(-1);
-            writeln!(w, "{},{:.6},{:.6},{:.6},{:.8},{:.6},{:.6},{:.4},{:.8},{:.8},{},{}",
-                chip_idx, d.mf_re, d.mf_im, d.costas_phase_err, d.costas_freq,
-                d.timing_period, d.timing_avg_period, d.agc_gain, d.input_power, d.ds_power,
-                biphase_bit, data_bit_val).unwrap();
-        }
-        chip_idx += 1;
-
-        // Block sync
-        if let Some(data_bit) = data_bit {
-            if let Some(event) = block_sync.push_bit(data_bit as u8) {
-                match event {
-                    rds_block_sync::SyncEvent::Group(group) => {
-                        let state = decoder.process(&group);
-                        let elapsed = start_time.elapsed().as_secs_f64();
-                        if metrics {
-                            let pi_str = if group.pi_code != 0 { format!("{:04X}", group.pi_code) } else { "0000".to_string() };
-                            eprintln!("RDSMETRIC {{\"t\":{:.3},\"bler\":{:.4},\"groups\":{},\"pi\":\"{}\"}}", elapsed, group.rolling_bler, state.groups_decoded, pi_str);
-                        }
-                        if debug {
-                            let v = if group.version { "B" } else { "A" };
-                            eprintln!("RDS Group {}{}: PI=0x{:04X}  BLER={:.1}%", group.group_type, v, group.pi_code, group.rolling_bler * 100.0);
-                        } else if !metrics {
-                            display.set_synced(true);
-                            display.render(&state);
-                        }
-                    }
-                    rds_block_sync::SyncEvent::Locked => {
-                        if !metrics && !debug { display.set_synced(true); display.render(&decoder.display_state()); }
-                    }
-                    rds_block_sync::SyncEvent::LostSync | rds_block_sync::SyncEvent::Searching => {
-                        if !metrics && !debug { display.set_synced(false); display.render(&decoder.display_state()); }
-                    }
-                }
-            }
-        }
-
-    }
-    // plot_re(&rds.debug.agc_hist[101..], "AGC history");
-    // plot_re(&rds.debug.freq_avg_hist, "Costas frequency adjustment history");
-    // plot_re(&rds.debug.phase_adj_hist, "Costas phase adjustment history");
-    // save_psd_png(&rds.debug.filtered_samples_hist, 171e3/24.0, "Filtered Samples", "filt.png");
-
-    if metrics {
-        let elapsed = start_time.elapsed().as_secs_f64();
-        let state = decoder.display_state();
-        eprintln!("RDSSUMMARY {{\"groups\":{},\"duration\":{:.1},\"final_bler\":{:.4}}}",
-            state.groups_decoded, elapsed, 0.0);
-    }
-
-}
-
 const AUDIO_DOWNSAMPLE: usize = 5;
 const RDS_FIRST_DECIMATE: usize = 12; // 240 kHz → 20 kHz
 const RDS_UPSAMPLE: usize = 19;       // 20 kHz → 380 kHz (virtual)
@@ -1097,13 +970,10 @@ fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::Ato
     let done_ref = done_sig.clone();
     let rds_config2 = rds_config;
     let rds_thread = std::thread::spawn(move || {
-        // Toggle: USE_REDSEA for redsea pipeline, USE_V4 for old v4 demod, default = v5
+        // Toggle: USE_REDSEA for redsea pipeline, default = v5
         let use_redsea = std::env::var("USE_REDSEA").is_ok();
-        let use_v4 = std::env::var("USE_V4").is_ok();
         if use_redsea {
             rds_pipeline(&done_ref, rds_rx, wfm_fs, &rds_config2, rds_debug, rds_metrics, diag_path.as_deref());
-        } else if use_v4 {
-            rds_pipeline_v4(&done_ref, rds_rx, wfm_fs, &rds_config2, rds_debug, rds_metrics, diag_path.as_deref());
         } else {
             rds_pipeline_v5(&done_ref, rds_rx, wfm_fs, &rds_config2, rds_debug, rds_metrics);
         }
