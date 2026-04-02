@@ -33,6 +33,7 @@ use crate::filterable::Filter;
 use crate::filterable::FilterableIter;
 use crate::fm_demod::FmDemodulatable;
 use crate::interleaver::InterleaveableIter;
+use crate::rds_demod::RdsDemodulatable;
 use crate::resample::{Downsampleable, RationalResampleable};
 use crate::spy::SpyableIter;
 use crate::wideband_fm_audio::WidebandFmAudioIterable;
@@ -492,11 +493,9 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wf
 
     println!("v5 pipeline: resample {} → {} (up {} down {})", wfm_fs, stage1_target_fs, stage1_up, stage1_down);
 
-    let mut base = iterable
-        .resample(fir::generate_lowpass_taps(up_fs as f64, 80e3, 255, &fir::WindowType::Blackman), stage1_up, stage1_down);
-
-    // v2 demod: coarse NCO + decimate 12× + fine Costas + polyphase Gardner
-    let mut rds = rds_demod::RdsDemod::new();
+    let mut chips = iterable
+        .resample(fir::generate_lowpass_taps(up_fs as f64, 80e3, 255, &fir::WindowType::Blackman), stage1_up, stage1_down)
+        .rds_demodulate();
 
     // Combined biphase + block sync (dual-phase searching, frozen polarity when locked)
     let mut chip_sync = chip_sync::ChipSync::new(2, 12, debug);
@@ -504,17 +503,12 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wf
     let mut display = rds_decoder::RdsDisplay::new();
     let start_time = std::time::Instant::now();
 
-    loop {
+    for chip in &mut chips {
         if done.load(atomic::Ordering::SeqCst) {
             break;
         }
 
-        let sym = match rds.next(&mut base) {
-            Some(s) => s,
-            None => break,
-        };
-
-        if let Some(event) = chip_sync.push_chip(sym) {
+        if let Some(event) = chip_sync.push_chip(chip) {
             match event {
                 chip_sync::SyncEvent::Group(group) => {
                     let state = decoder.process(&group);

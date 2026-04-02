@@ -166,32 +166,6 @@ impl<Num: Filterable<Num>> RationalResampler<Num> {
 
         Some(output)
     }
-
-    /// Return an iterator that pulls from `iter` and yields resampled output.
-    pub fn iter<'a, I: Iterator<Item = Num> + 'a>(&'a mut self, iter: I) -> RationalResampleRef<'a, I, Num> {
-        RationalResampleRef { iter, resampler: self }
-    }
-}
-
-pub struct RationalResampleRef<'a, I, Num>
-where
-    I: Iterator<Item = Num>,
-    Num: Filterable<Num>,
-{
-    iter: I,
-    resampler: &'a mut RationalResampler<Num>,
-}
-
-impl<'a, I, Num> Iterator for RationalResampleRef<'a, I, Num>
-where
-    I: Iterator<Item = Num>,
-    Num: Filterable<Num>,
-{
-    type Item = Num;
-
-    fn next(&mut self) -> Option<Num> {
-        self.resampler.process(&mut self.iter)
-    }
 }
 
 // --- Iterator adapter ---

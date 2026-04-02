@@ -1,7 +1,8 @@
-use std::cell::RefCell;
 use num_complex::Complex32;
 
-use crate::{fir, resample::RationalResampler};
+use crate::fir;
+use crate::osc::{Mixable, MixableIter};
+use crate::resample::{RationalResampleable, RationalResampleIter};
 
 // ── Constants ──
 const R_CHIP: f32 = 2375.0;
@@ -52,26 +53,61 @@ fn compute_pi_gains(loop_bw: f32, damping: f32, k_det: f32, update_rate: f32) ->
     (alpha as f32, beta as f32)
 }
 
-// ── Coarse NCO ──
-struct CoarseNco {
-    phase: f32,
-    freq_incr: f32,
+// ── Top-level demodulator (owning iterator adapter) ──
+
+/// Input sample rate expected by the RDS demodulator.
+pub const INPUT_FS: f32 = 171e3;
+
+pub struct RdsDemodIter<I: Iterator<Item = f32>> {
+    // NCO mix + LPF + decimate: composed from existing iterator adapters
+    inner: RationalResampleIter<MixableIter<f32, I>, Complex32>,
+    costas: FineCostas,
+    agc_pre: Agc,
+    gardner: PolyphaseGardner,
 }
 
-impl CoarseNco {
-    fn new(freq: f32, sample_rate: f32) -> Self {
-        CoarseNco {
-            phase: 0.0,
-            freq_incr: 2.0 * std::f32::consts::PI * freq / sample_rate,
+impl<I: Iterator<Item = f32>> RdsDemodIter<I> {
+    pub fn new(iter: I) -> Self {
+        let downsample_filter = fir::generate_lowpass_taps(
+            INPUT_FS as f64, 2500.0, 1001, &fir::WindowType::Blackman,
+        );
+        let inner = iter
+            .mix(-57e3, INPUT_FS)
+            .resample(downsample_filter, 1, PRE_DECIMATE);
+
+        RdsDemodIter {
+            inner,
+            costas: FineCostas::new(),
+            agc_pre: Agc::new(0.001, 1.0, 1e5),
+            gardner: PolyphaseGardner::new(),
         }
     }
+}
 
-    fn mix(&mut self, sample: f32) -> Complex32 {
-        self.phase += self.freq_incr;
-        let two_pi = 2.0 * std::f32::consts::PI;
-        while self.phase >= two_pi { self.phase -= two_pi; }
-        while self.phase < 0.0 { self.phase += two_pi; }
-        sample * Complex32::new(self.phase.cos(), -self.phase.sin())
+impl<I: Iterator<Item = f32>> Iterator for RdsDemodIter<I> {
+    type Item = Complex32;
+
+    fn next(&mut self) -> Option<Complex32> {
+        loop {
+            let dec_sample = self.inner.next()?;
+            let mf_sample = self.costas.process(
+                self.agc_pre.process(dec_sample),
+            );
+            if let Some(chip) = self.gardner.push_sample(mf_sample) {
+                return Some(chip);
+            }
+        }
+    }
+}
+
+pub trait RdsDemodulatable {
+    fn rds_demodulate(self) -> RdsDemodIter<Self>
+    where Self: Sized + Iterator<Item = f32>;
+}
+
+impl<I: Iterator<Item = f32>> RdsDemodulatable for I {
+    fn rds_demodulate(self) -> RdsDemodIter<I> {
+        RdsDemodIter::new(self)
     }
 }
 
@@ -356,57 +392,4 @@ impl PolyphaseGardner {
     }
 }
 
-// ── Top-level demodulator ──
-pub struct RdsDemod {
-    coarse_nco: CoarseNco,
-    downsampler: RationalResampler<Complex32>,
-    costas: FineCostas,
-    agc_pre: Agc,    // pre-MF AGC for Costas
-    gardner: PolyphaseGardner,
-}
 
-impl RdsDemod {
-    pub fn new() -> Self {
-        let downsample_filter = fir::generate_lowpass_taps(
-            171e3, 2500.0, 1001, &fir::WindowType::Blackman,
-        );
-
-        RdsDemod {
-            coarse_nco: CoarseNco::new(57e3, 171e3),
-            downsampler: RationalResampler::new(downsample_filter, 1, PRE_DECIMATE),
-            costas: FineCostas::new(),
-            agc_pre: Agc::new(0.001, 1.0, 1e5),
-            gardner: PolyphaseGardner::new(),
-        }
-    }
-
-    /// Process input samples at 171 kHz. Returns one chip when available.
-    pub fn next(&mut self, iter: &mut impl Iterator<Item = f32>) -> Option<Complex32> {
-        let coarse_nco = &mut self.coarse_nco;
-        let coarse_nco = RefCell::new(coarse_nco);
-        let downsampler = &mut self.downsampler;
-        let costas = &mut self.costas;
-        let agc_pre = &mut self.agc_pre;
-        let gardner = &mut self.gardner;
-
-        loop {
-            // Pull one decimated sample: NCO mix → LPF → decimate 12×
-            let dec_sample = {
-                let pipeline = iter.map(|sample| coarse_nco.borrow_mut().mix(sample));
-                match downsampler.iter(pipeline).next() {
-                    Some(s) => s,
-                    None => return None,
-                }
-            };
-
-            // AGC → Costas (carrier recovery + MF) at 14250 Hz
-            let agc_sample = agc_pre.process(dec_sample);
-            let mf_sample = costas.process(agc_sample);
-
-            // Gardner timing recovery → fires at chip rate
-            if let Some(chip) = gardner.push_sample(mf_sample) {
-                return Some(chip);
-            }
-        }
-    }
-}
