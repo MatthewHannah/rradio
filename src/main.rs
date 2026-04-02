@@ -14,7 +14,7 @@ mod pluto;
 mod buffer;
 mod soapy;
 mod fir;
-mod rds_block_sync;
+mod rds_decoder;
 mod chip_sync;
 mod rds_demod;
 
@@ -500,8 +500,8 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wf
 
     // Combined biphase + block sync (dual-phase searching, frozen polarity when locked)
     let mut chip_sync = chip_sync::ChipSync::new(2, 12, debug);
-    let mut decoder = rds_block_sync::RdsDecoder::new();
-    let mut display = rds_block_sync::RdsDisplay::new();
+    let mut decoder = rds_decoder::RdsDecoder::new();
+    let mut display = rds_decoder::RdsDisplay::new();
     let start_time = std::time::Instant::now();
 
     loop {
@@ -516,7 +516,7 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wf
 
         if let Some(event) = chip_sync.push_chip(sym) {
             match event {
-                rds_block_sync::SyncEvent::Group(group) => {
+                chip_sync::SyncEvent::Group(group) => {
                     let state = decoder.process(&group);
                     let elapsed = start_time.elapsed().as_secs_f64();
                     if metrics {
@@ -531,10 +531,10 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wf
                         display.render(&state);
                     }
                 }
-                rds_block_sync::SyncEvent::Locked => {
+                chip_sync::SyncEvent::Locked => {
                     if !metrics && !debug { display.set_synced(true); display.render(&decoder.display_state()); }
                 }
-                rds_block_sync::SyncEvent::LostSync | rds_block_sync::SyncEvent::Searching => {
+                chip_sync::SyncEvent::LostSync | chip_sync::SyncEvent::Searching => {
                     if !metrics && !debug { display.set_synced(false); display.render(&decoder.display_state()); }
                 }
             }

@@ -4,14 +4,117 @@
 /// During Searching, two parallel biphase decoders (phase 0 and phase 1)
 /// race to find a CRC match. Once sync is acquired, the winning phase is
 /// frozen — no energy-based polarity re-evaluation.
+///
+/// Also contains CRC primitives, offset words, and error correction for RDS blocks.
 
 use num_complex::Complex32;
-use crate::rds_block_sync::{
-    RdsGroup, SyncEvent,
-    check_block, syndrome,
-    OFFSETS, BLOCK_FOR_OFFSET,
-    expected_next_offsets, SYNC_THRESHOLD,
-};
+
+// ── CRC and block-level constants ──────────────────────────────────────────
+
+/// CRC-10 generator polynomial: x^10 + x^8 + x^7 + x^5 + x^4 + x^3 + 1
+/// Binary (degree 10 to 0): 10110111001 = 0x5B9
+const CRC_POLY: u32 = 0x5B9; // 11-bit polynomial including leading x^10 term
+
+/// Offset words for each block type (10 bits each)
+const OFFSET_A:  u16 = 0x0FC;
+const OFFSET_B:  u16 = 0x198;
+const OFFSET_C:  u16 = 0x168;
+const OFFSET_CP: u16 = 0x350; // C' (used in type B groups)
+const OFFSET_D:  u16 = 0x1B4;
+
+pub const OFFSETS: [(u16, &str); 5] = [
+    (OFFSET_A,  "A"),
+    (OFFSET_B,  "B"),
+    (OFFSET_C,  "C"),
+    (OFFSET_CP, "C'"),
+    (OFFSET_D,  "D"),
+];
+
+/// Block index for each offset in the group sequence
+pub const BLOCK_FOR_OFFSET: [usize; 5] = [0, 1, 2, 2, 3]; // A=0, B=1, C=2, C'=2, D=3
+
+/// Expected next block offset indices after each block
+pub fn expected_next_offsets(current_offset_idx: usize) -> &'static [usize] {
+    match current_offset_idx {
+        0 => &[1],       // A → B
+        1 => &[2, 3],    // B → C or C'
+        2 | 3 => &[4],   // C or C' → D
+        4 => &[0],       // D → A
+        _ => &[],
+    }
+}
+
+pub const SYNC_THRESHOLD: usize = 3;  // consecutive good blocks to lock
+
+/// Compute CRC-10 syndrome for a 26-bit block using polynomial long division.
+/// For an error-free block, syndrome == offset word for that block type.
+pub fn syndrome(block: u32) -> u16 {
+    let mut reg = block;
+    for i in (10..26).rev() {
+        if reg & (1 << i) != 0 {
+            reg ^= CRC_POLY << (i - 10);
+        }
+    }
+    (reg & 0x3FF) as u16
+}
+
+/// Try to match a block's syndrome against expected offsets, with optional error correction.
+/// Returns Some((offset_index, corrected_data)) on success.
+pub fn check_block(block: u32, expected_offsets: &[usize], max_correction_bits: u32) -> Option<(usize, u16)> {
+    let syn = syndrome(block);
+
+    // First try exact match (no errors)
+    for &idx in expected_offsets {
+        if syn == OFFSETS[idx].0 {
+            return Some((idx, (block >> 10) as u16));
+        }
+    }
+
+    if max_correction_bits == 0 {
+        return None;
+    }
+
+    // Try error correction
+    for &idx in expected_offsets {
+        let error_syndrome = (syn ^ OFFSETS[idx].0) as usize;
+        let error_pattern = ERROR_CORRECTION_TABLE[error_syndrome];
+        if error_pattern != 0 && error_pattern.count_ones() <= max_correction_bits {
+            let corrected = block ^ error_pattern;
+            return Some((idx, (corrected >> 10) as u16));
+        }
+    }
+
+    None
+}
+
+/// Error correction lookup table: syndrome → 26-bit error pattern.
+/// Covers single-bit errors and burst errors up to 5 bits (367 patterns).
+/// Zero entry means uncorrectable.
+#[rustfmt::skip]
+static ERROR_CORRECTION_TABLE: [u32; 1024] = include!("rds_error_table.inc");
+
+#[derive(Debug, Clone)]
+pub struct RdsGroup {
+    pub blocks: [u16; 4],
+    pub group_type: u8,
+    pub version: bool,
+    pub pi_code: u16,
+    pub rolling_bler: f64,
+}
+
+/// Events yielded by the block sync iterator.
+pub enum SyncEvent {
+    /// A complete group was decoded.
+    Group(RdsGroup),
+    /// Sync was just lost.
+    LostSync,
+    /// Sync was just acquired.
+    Locked,
+    /// Still searching (emitted periodically).
+    Searching,
+}
+
+// ── Biphase + block synchronization ────────────────────────────────────────
 
 /// A single biphase + differential decoding path.
 struct BiphasePath {
@@ -366,5 +469,115 @@ impl ChipSync {
                 None
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Compute the 10-bit check word for 16 data bits + offset word.
+    fn encode_block(data: u16, offset: u16) -> u32 {
+        let message = (data as u32) << 10;
+        let crc = syndrome(message);
+        let check = crc ^ offset;
+        ((data as u32) << 10) | (check as u32)
+    }
+
+    #[test]
+    fn test_syndrome_round_trip() {
+        let data: u16 = 0xABCD;
+        let block = encode_block(data, OFFSET_A);
+        assert_eq!(syndrome(block), OFFSET_A,
+            "syndrome of a valid block-A should equal OFFSET_A");
+    }
+
+    #[test]
+    fn test_check_block_exact() {
+        let data: u16 = 0xABCD;
+        let block = encode_block(data, OFFSET_A);
+        let result = check_block(block, &[0], 0);
+        assert_eq!(result, Some((0, data)));
+    }
+
+    #[test]
+    fn test_check_block_with_1bit_error() {
+        let data: u16 = 0xABCD;
+        let block = encode_block(data, OFFSET_A);
+        // Flip one bit (bit 20)
+        let corrupted = block ^ (1 << 20);
+        // Should fail with 0-bit correction
+        assert!(check_block(corrupted, &[0], 0).is_none());
+        // Should succeed with 1-bit correction and recover original data
+        let result = check_block(corrupted, &[0], 1);
+        assert_eq!(result, Some((0, data)));
+    }
+
+    #[test]
+    fn test_end_to_end_chip_sync() {
+        let pi: u16 = 0x1234;
+        let block_b: u16 = 0x2400; // group type 2, version A
+        let block_c: u16 = 0x4142;
+        let block_d: u16 = 0x4344;
+
+        // Encode blocks
+        let raw_blocks = [
+            encode_block(pi, OFFSET_A),
+            encode_block(block_b, OFFSET_B),
+            encode_block(block_c, OFFSET_C),
+            encode_block(block_d, OFFSET_D),
+        ];
+
+        // Convert to bit stream (26 bits per block, MSB first)
+        let mut bits: Vec<bool> = Vec::new();
+        for &blk in &raw_blocks {
+            for i in (0..26).rev() {
+                bits.push((blk >> i) & 1 == 1);
+            }
+        }
+
+        // Repeat groups so sync can lock (need SYNC_THRESHOLD + extra)
+        let one_group = bits.clone();
+        for _ in 0..7 {
+            bits.extend_from_slice(&one_group);
+        }
+
+        // Differential encode: encoded[n] = data[n] XOR encoded[n-1]
+        let mut encoded_bits: Vec<bool> = Vec::with_capacity(bits.len());
+        let mut prev = false;
+        for &b in &bits {
+            let enc = b ^ prev;
+            encoded_bits.push(enc);
+            prev = enc;
+        }
+
+        // Manchester encode: true → [-1, +1], false → [+1, -1]
+        // (Convention matches biphase decoder: chip - prev_chip > 0 → true)
+        let mut chips: Vec<Complex32> = Vec::with_capacity(encoded_bits.len() * 2);
+        for &enc in &encoded_bits {
+            if enc {
+                chips.push(Complex32::new(-1.0, 0.0));
+                chips.push(Complex32::new(1.0, 0.0));
+            } else {
+                chips.push(Complex32::new(1.0, 0.0));
+                chips.push(Complex32::new(-1.0, 0.0));
+            }
+        }
+
+        // Feed chips into ChipSync
+        let mut sync = ChipSync::new(2, 12, false);
+        let mut groups: Vec<RdsGroup> = Vec::new();
+        for &chip in &chips {
+            if let Some(SyncEvent::Group(g)) = sync.push_chip(chip) {
+                groups.push(g);
+            }
+        }
+
+        assert!(!groups.is_empty(), "Should decode at least one group");
+        let g = groups.iter().find(|g| g.pi_code != 0)
+            .expect("Should decode at least one group with non-zero PI");
+        assert_eq!(g.pi_code, pi, "PI code mismatch");
+        assert_eq!(g.group_type, 2, "Group type mismatch");
+        assert!(!g.version, "Should be version A");
     }
 }
