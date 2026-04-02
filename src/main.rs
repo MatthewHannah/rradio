@@ -15,7 +15,6 @@ mod buffer;
 mod soapy;
 mod fir;
 mod rds_block_sync;
-mod biphase;
 mod chip_sync;
 mod rds_demod;
 
@@ -34,7 +33,6 @@ use crate::filterable::Filter;
 use crate::filterable::FilterableIter;
 use crate::fm_demod::FmDemodulatable;
 use crate::interleaver::InterleaveableIter;
-use crate::rds_block_sync::RdsBlockSyncable;
 use crate::resample::{Downsampleable, RationalResampleable};
 use crate::spy::SpyableIter;
 use crate::wideband_fm_audio::WidebandFmAudioIterable;
