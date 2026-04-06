@@ -2,3 +2,5 @@
 /res
 /.vscode
 .DS_Store
+*.pyc
+*.png

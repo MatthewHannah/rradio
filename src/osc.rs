@@ -1,3 +1,5 @@
+use std::ops::Mul;
+
 use num_complex::Complex32;
 
 #[derive(Clone)]
@@ -28,6 +30,42 @@ impl Iterator for Osc {
         Some(self.next())
     }
 }
+
+pub struct MixableIter<T, I: Iterator<Item = T>> where T: Mul<Complex32, Output = Complex32> {
+    iter: I,
+    osc: Osc,
+}
+
+impl<T, I: Iterator<Item = T>> MixableIter<T, I> where T: Mul<Complex32, Output = Complex32> {
+    pub fn new(iter: I, osc: Osc) -> Self {
+        MixableIter { iter, osc }
+    }
+
+    pub fn next(&mut self) -> Option<Complex32> {
+        let sample = self.iter.next()?;
+        let osc_sample = self.osc.next();
+        Some(sample * osc_sample)
+    }
+}
+
+impl<T, I: Iterator<Item = T>> Iterator for MixableIter<T, I> where T: Mul<Complex32, Output = Complex32> {
+    type Item = Complex32;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next()
+    }
+}
+
+pub trait Mixable<T>: Iterator<Item = T> + Sized where T: Mul<Complex32, Output = Complex32> {
+    fn mix(self, freq: f32, sample_rate: f32) -> MixableIter<T, Self>;
+}
+
+impl<T, I: Iterator<Item = T>> Mixable<T> for I where T: Mul<Complex32, Output = Complex32> {
+    fn mix(self, freq: f32, sample_rate: f32) -> MixableIter<T, Self> {
+        MixableIter::new(self, Osc::new(freq, sample_rate))
+    }
+}
+
 
 #[cfg(test)]
 mod tests {

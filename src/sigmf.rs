@@ -145,6 +145,120 @@ impl Iterator for SigmfStreamer {
     }
 }
 
+/// SigMF recording writer. Writes cf32_le IQ data and a compliant metadata file.
+pub struct SigmfWriter {
+    data_file: std::io::BufWriter<File>,
+    meta_path: std::path::PathBuf,
+    sample_rate: f64,
+    frequency: f64,
+    hw: String,
+    samples_written: u64,
+    datetime: String,
+}
+
+impl SigmfWriter {
+    /// Create a new SigMF recording. `base_path` is the path without extension;
+    /// `.sigmf-data` and `.sigmf-meta` will be appended.
+    pub fn new(base_path: &str, sample_rate: f64, frequency: f64, hw: &str) -> Result<SigmfWriter, SigmfError> {
+        let data_path = format!("{}.sigmf-data", base_path);
+        let data_file = File::create(&data_path)
+            .map_err(|e| SigmfError::BadFile(format!("{}: {}", data_path, e)))?;
+
+        // ISO 8601 UTC timestamp
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let datetime = format_utc_timestamp(now);
+
+        Ok(SigmfWriter {
+            data_file: std::io::BufWriter::new(data_file),
+            meta_path: std::path::PathBuf::from(format!("{}.sigmf-meta", base_path)),
+            sample_rate,
+            frequency,
+            hw: hw.to_string(),
+            samples_written: 0,
+            datetime,
+        })
+    }
+
+    /// Write a batch of IQ samples.
+    pub fn write_samples(&mut self, samples: &[Complex32]) -> Result<(), SigmfError> {
+        use std::io::Write;
+        for s in samples {
+            self.data_file.write_all(&s.re.to_le_bytes())
+                .map_err(|e| SigmfError::BadFile(format!("write error: {}", e)))?;
+            self.data_file.write_all(&s.im.to_le_bytes())
+                .map_err(|e| SigmfError::BadFile(format!("write error: {}", e)))?;
+        }
+        self.samples_written += samples.len() as u64;
+        Ok(())
+    }
+
+    /// Finalize the recording: flush data and write the metadata file.
+    pub fn finalize(mut self) -> Result<(), SigmfError> {
+        use std::io::Write;
+        self.data_file.flush()
+            .map_err(|e| SigmfError::BadFile(format!("flush error: {}", e)))?;
+
+        let meta = serde_json::json!({
+            "global": {
+                "core:datatype": "cf32_le",
+                "core:sample_rate": self.sample_rate,
+                "core:version": "1.2.0",
+                "core:hw": self.hw,
+                "core:recorder": "rradio",
+                "core:description": format!("FM recording at {:.1} MHz", self.frequency / 1e6),
+            },
+            "captures": [{
+                "core:sample_start": 0,
+                "core:frequency": self.frequency,
+                "core:datetime": self.datetime,
+            }],
+            "annotations": []
+        });
+
+        let meta_file = File::create(&self.meta_path)
+            .map_err(|e| SigmfError::BadFile(format!("{}: {}", self.meta_path.display(), e)))?;
+        serde_json::to_writer_pretty(std::io::BufWriter::new(meta_file), &meta)
+            .map_err(|e| SigmfError::BadFile(format!("metadata write error: {}", e)))?;
+
+        let duration = self.samples_written as f64 / self.sample_rate;
+        eprintln!("SigMF: wrote {} samples ({:.1}s) to {}",
+            self.samples_written, duration, self.meta_path.display());
+        Ok(())
+    }
+}
+
+fn format_utc_timestamp(epoch_secs: u64) -> String {
+    let secs_per_day = 86400u64;
+    let days = epoch_secs / secs_per_day;
+    let time_of_day = epoch_secs % secs_per_day;
+    let hours = time_of_day / 3600;
+    let minutes = (time_of_day % 3600) / 60;
+    let seconds = time_of_day % 60;
+
+    // Simple date calculation from days since epoch (1970-01-01)
+    let mut y = 1970i64;
+    let mut remaining = days as i64;
+    loop {
+        let days_in_year = if y % 4 == 0 && (y % 100 != 0 || y % 400 == 0) { 366 } else { 365 };
+        if remaining < days_in_year { break; }
+        remaining -= days_in_year;
+        y += 1;
+    }
+    let leap = y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
+    let month_days = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let mut m = 0;
+    for &md in &month_days {
+        if remaining < md { break; }
+        remaining -= md;
+        m += 1;
+    }
+
+    format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", y, m + 1, remaining + 1, hours, minutes, seconds)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
