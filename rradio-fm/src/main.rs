@@ -1,19 +1,5 @@
-mod sigmf;
-mod osc;
-mod biquad;
-mod resample;
-mod fm_demod;
 mod playback;
-mod deemphasis;
-mod filterable;
-mod spy;
-mod pll;
-mod interleaver;
 mod wideband_fm_audio;
-mod pluto;
-mod buffer;
-mod soapy;
-mod fir;
 mod rds_decoder;
 mod chip_sync;
 mod rds_demod;
@@ -29,15 +15,16 @@ use plotly::{HeatMap, Plot, Scatter};
 use num_complex::Complex32;
 use rustfft::{num_traits::Zero, FftPlanner};
 
-use crate::filterable::Filter;
-use crate::filterable::FilterableIter;
-use crate::fm_demod::FmDemodulatable;
-use crate::interleaver::InterleaveableIter;
+use rradio_dsp::filterable::Filter;
+use rradio_dsp::filterable::FilterableIter;
+use rradio_dsp::fm_demod::FmDemodulatable;
+use rradio_dsp::interleaver::InterleaveableIter;
+use rradio_dsp::resample::{Downsampleable, RationalResampleable};
+use rradio_dsp::spy::SpyableIter;
+use rradio_dsp::osc::Mixable;
+
 use crate::rds_demod::RdsDemodulatable;
-use crate::resample::{Downsampleable, RationalResampleable};
-use crate::spy::SpyableIter;
 use crate::wideband_fm_audio::WidebandFmAudioIterable;
-use crate::osc::Mixable;
 
 #[allow(dead_code)]
 fn spectrogram<T>(window_size: usize, overlap: usize, fs: f32, samples: &[T]) where Complex32: From<T>, T: Copy {
@@ -157,12 +144,12 @@ fn plot_re(samples: &[f32], title: &str) {
     plot.show();
 }
 
-fn buffer_pluto(done: &atomic::AtomicBool, config: &pluto::SdrConfig, mut out: buffer::SendBuf<Vec<Complex32>>) {
+fn buffer_pluto(done: &atomic::AtomicBool, config: &rradio_sdr::pluto::SdrConfig, mut out: rradio_dsp::buffer::SendBuf<Vec<Complex32>>) {
     const MAX_RETRIES: u32 = 3;
 
     while !done.load(atomic::Ordering::SeqCst) {
         // (Re)connect and configure SDR
-        let mut sdr = match pluto::PlutoSdr::connect(config) {
+        let mut sdr = match rradio_sdr::pluto::PlutoSdr::connect(config) {
             Ok(sdr) => {
                 eprintln!("SDR connected");
                 sdr
@@ -218,11 +205,11 @@ fn buffer_pluto(done: &atomic::AtomicBool, config: &pluto::SdrConfig, mut out: b
     }
 }
 
-fn buffer_soapy(done: &atomic::AtomicBool, config: &soapy::SoapyConfig, mut out: buffer::SendBuf<Vec<Complex32>>) {
+fn buffer_soapy(done: &atomic::AtomicBool, config: &rradio_sdr::soapy::SoapyConfig, mut out: rradio_dsp::buffer::SendBuf<Vec<Complex32>>) {
     const MAX_RETRIES: u32 = 3;
 
     while !done.load(atomic::Ordering::SeqCst) {
-        let sdr = match soapy::SoapySdr::connect(config) {
+        let sdr = match rradio_sdr::soapy::SoapySdr::connect(config) {
             Ok(sdr) => {
                 eprintln!("SoapySDR connected");
                 sdr
@@ -277,7 +264,7 @@ fn buffer_soapy(done: &atomic::AtomicBool, config: &soapy::SoapyConfig, mut out:
     }
 }
 
-fn buffer_sigmf(done: &atomic::AtomicBool, mut streamer: sigmf::SigmfStreamer, mut out: buffer::SendBuf<Vec<Complex32>>, tune_offset: f32, fs: f32) {
+fn buffer_sigmf(done: &atomic::AtomicBool, mut streamer: rradio_sdr::sigmf::SigmfStreamer, mut out: rradio_dsp::buffer::SendBuf<Vec<Complex32>>, tune_offset: f32, fs: f32) {
     const CHUNK: usize = 4*1024*1024;
     while !done.load(atomic::Ordering::SeqCst) {
         if let Some(mut buf) = out.get() {
@@ -305,14 +292,14 @@ struct SignalPipelineSettings {
 fn signal_pipeline(
     done: &atomic::AtomicBool,
     fs: f32,
-    inbuf: buffer::RecvBuf<Vec<Complex32>>,
-    mut audio_out: buffer::SendBuf<Vec<(f32, f32)>>,
-    mut rds_out: buffer::SendBuf<Vec<f32>>,
+    inbuf: rradio_dsp::buffer::RecvBuf<Vec<Complex32>>,
+    mut audio_out: rradio_dsp::buffer::SendBuf<Vec<(f32, f32)>>,
+    mut rds_out: rradio_dsp::buffer::SendBuf<Vec<f32>>,
     settings: SignalPipelineSettings,
     obs_settings: AudioPipelineObservationSettings,
     mpx_path: Option<String>,
 ) {
-    let samples = buffer::RecvBufIter::new(inbuf);
+    let samples = rradio_dsp::buffer::RecvBufIter::new(inbuf);
 
     let fs_spy = fs;
     let samples = samples.maybe_spy(6000000, move |iq_samples| {
@@ -321,8 +308,8 @@ fn signal_pipeline(
 
     // IQ filtering + downsample
     let iq_filter_stages = 2;
-    let iq_filters: Vec<biquad::Biquad<Complex32>> = (0..iq_filter_stages)
-        .map(|_| biquad::Biquad::lowpass(fs, 300000.0, 0.707))
+    let iq_filters: Vec<rradio_dsp::biquad::Biquad<Complex32>> = (0..iq_filter_stages)
+        .map(|_| rradio_dsp::biquad::Biquad::lowpass(fs, 300000.0, 0.707))
         .collect();
     let mut filtered: Box<dyn Iterator<Item = Complex32>> = Box::new(samples);
     for filt in iq_filters {
@@ -337,9 +324,9 @@ fn signal_pipeline(
     }, obs_settings.spy_iq);
 
     // FM demodulation + decimating FIR
-    let fm_filt = biquad::Biquad::lowpass(fs, 80000.0, 0.707);
-    let fm_decim_taps: Vec<f32> = fir::generate_lowpass_taps(
-        fs as f64, 80_000.0, 31, &fir::WindowType::Blackman,
+    let fm_filt = rradio_dsp::biquad::Biquad::lowpass(fs, 80000.0, 0.707);
+    let fm_decim_taps: Vec<f32> = rradio_dsp::fir::generate_lowpass_taps(
+        fs as f64, 80_000.0, 31, &rradio_dsp::fir::WindowType::Blackman,
     );
     let demoded = resampled.dsp_filter(fm_filt).fm_demodulate().resample(fm_decim_taps, 1, settings.fm_demod_downsample);
     let _fs = fs / (settings.fm_demod_downsample as f32);
@@ -373,8 +360,8 @@ fn signal_pipeline(
     // Wideband FM audio (stereo + RDS extraction) — tee to two consumers
     let mut wfm = demoded.wfm_audio(_fs);
 
-    let mut audio_batch: Option<buffer::BufToken<Vec<(f32, f32)>>> = None;
-    let mut rds_batch: Option<buffer::BufToken<Vec<f32>>> = None;
+    let mut audio_batch: Option<rradio_dsp::buffer::BufToken<Vec<(f32, f32)>>> = None;
+    let mut rds_batch: Option<rradio_dsp::buffer::BufToken<Vec<f32>>> = None;
 
     while !done.load(atomic::Ordering::SeqCst) {
         // Ensure we have output buffers
@@ -446,9 +433,9 @@ fn compute_pipeline_settings(fs: f32) -> SignalPipelineSettings {
 }
 
 enum IqSource {
-    Pluto { config: pluto::SdrConfig },
-    Soapy { config: soapy::SoapyConfig },
-    Sigmf { streamer: sigmf::SigmfStreamer, tune_offset: f32 },
+    Pluto { config: rradio_sdr::pluto::SdrConfig },
+    Soapy { config: rradio_sdr::soapy::SoapyConfig },
+    Sigmf { streamer: rradio_sdr::sigmf::SigmfStreamer, tune_offset: f32 },
 }
 
 enum AudioOutput {
@@ -482,8 +469,8 @@ fn get_ratio(old: f32, new: f32) -> (usize, usize) {
     (up as usize, down as usize)
 }
 
-fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wfm_fs: f32, debug: bool, metrics: bool) {
-    let iterable = buffer::RecvBufIter::new(rds_rx);
+fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: rradio_dsp::buffer::RecvBuf<Vec<f32>>, wfm_fs: f32, debug: bool, metrics: bool) {
+    let iterable = rradio_dsp::buffer::RecvBufIter::new(rds_rx);
 
     // Stage 1: resample 240k → 171k (same as v4)
     let stage1_target_fs: f32 = 57e3 * 3.0;
@@ -494,7 +481,7 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: buffer::RecvBuf<Vec<f32>>, wf
     println!("v5 pipeline: resample {} → {} (up {} down {})", wfm_fs, stage1_target_fs, stage1_up, stage1_down);
 
     let mut chips = iterable
-        .resample(fir::generate_lowpass_taps(up_fs as f64, 80e3, 255, &fir::WindowType::Blackman), stage1_up, stage1_down)
+        .resample(rradio_dsp::fir::generate_lowpass_taps(up_fs as f64, 80e3, 255, &rradio_dsp::fir::WindowType::Blackman), stage1_up, stage1_down)
         .rds_demodulate();
 
     // Combined biphase + block sync (dual-phase searching, frozen polarity when locked)
@@ -566,21 +553,21 @@ fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::Ato
     eprintln!("  RDS:   v5 pipeline (internal resample to 14250 Hz)");
 
     // Buffer pairs
-    let (iq_tx, iq_rx) = buffer::buf_pair::<Vec<Complex32>>(8);
-    let (audio_tx, audio_rx) = buffer::buf_pair::<Vec<(f32, f32)>>(8);
-    let (rds_tx, rds_rx) = buffer::buf_pair::<Vec<f32>>(8);
+    let (iq_tx, iq_rx) = rradio_dsp::buffer::buf_pair::<Vec<Complex32>>(8);
+    let (audio_tx, audio_rx) = rradio_dsp::buffer::buf_pair::<Vec<(f32, f32)>>(8);
+    let (rds_tx, rds_rx) = rradio_dsp::buffer::buf_pair::<Vec<f32>>(8);
 
     // Optional IQ recording: splitter tees raw IQ to both signal pipeline and recorder
     let (pipeline_rx, record_thread) = if let Some(ref path) = record_path {
-        let (pipeline_tx, pipeline_rx) = buffer::buf_pair::<Vec<Complex32>>(8);
-        let (record_tx, record_rx) = buffer::buf_pair::<Vec<Complex32>>(4);
+        let (pipeline_tx, pipeline_rx) = rradio_dsp::buffer::buf_pair::<Vec<Complex32>>(8);
+        let (record_tx, record_rx) = rradio_dsp::buffer::buf_pair::<Vec<Complex32>>(4);
 
         let hw = match &iq_source {
             IqSource::Pluto { .. } => "PlutoSDR",
             IqSource::Soapy { .. } => "RTL-SDR via SoapySDR",
             IqSource::Sigmf { .. } => "SigMF playback",
         };
-        let mut writer = sigmf::SigmfWriter::new(path, fs as f64, station_freq, hw)
+        let mut writer = rradio_sdr::sigmf::SigmfWriter::new(path, fs as f64, station_freq, hw)
             .expect("Failed to create SigMF recording");
 
         // Splitter thread: reads IQ, writes to pipeline + recorder
@@ -619,7 +606,7 @@ fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::Ato
         let done_ref = done_sig.clone();
         let rec_path = path.clone();
         let recorder = std::thread::spawn(move || {
-            let iter = buffer::RecvBufIter::new(record_rx);
+            let iter = rradio_dsp::buffer::RecvBufIter::new(record_rx);
             let mut batch = Vec::with_capacity(8192);
             for sample in iter {
                 if done_ref.load(atomic::Ordering::SeqCst) { break; }
@@ -675,7 +662,7 @@ fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::Ato
     });
 
     // Main thread: Audio consumer (downsample + interleave + output)
-    let audio_iter = buffer::RecvBufIter::new(audio_rx)
+    let audio_iter = rradio_dsp::buffer::RecvBufIter::new(audio_rx)
         .downsample(AUDIO_DOWNSAMPLE)
         .interleave();
 
@@ -771,7 +758,7 @@ fn main() {
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(0.0)
                 * 1e3;
-            let streamer = sigmf::SigmfStreamer::new(path).expect("Failed to open SigMF file");
+            let streamer = rradio_sdr::sigmf::SigmfStreamer::new(path).expect("Failed to open SigMF file");
             let source = IqSource::Sigmf { streamer, tune_offset };
             run(source, audio_output, done_sig, obs_settings, rds_debug, rds_metrics, record_path, mpx_path.clone());
         }
@@ -781,7 +768,7 @@ fn main() {
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(96.1)
                 * 1e6;
-            let config = soapy::SoapyConfig {
+            let config = rradio_sdr::soapy::SoapyConfig {
                 filter: filter.to_string(),
                 station,
                 bw: 200e6,
@@ -794,7 +781,7 @@ fn main() {
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(96.1)
                 * 1e6;
-            let config = pluto::SdrConfig {
+            let config = rradio_sdr::pluto::SdrConfig {
                 uri: "ip:pluto.local".to_string(),
                 station,
                 bw: 200e6,

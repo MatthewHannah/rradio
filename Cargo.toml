@@ -1,18 +1,8 @@
-[package]
-name = "rradio"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+members = [
+    "rradio-dsp",
+    "rradio-sdr",
+    "rradio-fm",
+]
+resolver = "3"
 
-[dependencies]
-cpal = "0.16.0"
-ctrlc = "3.5.0"
-hound = "3"
-industrial-io = "0.6.1"
-num-complex = "0.4.6"
-num-integer = "0.1.46"
-num-traits = "0.2.19"
-plotly = { version = "0.13.5", features = ["kaleido", "kaleido_download"] }
-rustfft = "=6.4.1"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-soapysdr = "0.4"

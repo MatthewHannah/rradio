@@ -265,7 +265,7 @@ mod tests {
 
     #[test]
     fn try_stream_file() -> Result<(), SigmfError> {
-        let file = SigmfStreamer::new("./res/fm_radio_20250920_6msps.sigmf-meta")?;
+        let file = SigmfStreamer::new("../res/fm_radio_20250920_6msps.sigmf-meta")?;
         assert_eq!(file.sample_rate(), 6000000.0);
         let sum: Complex32 = file.take(100).sum();
         assert_ne!(sum, c32(0.0, 0.0));

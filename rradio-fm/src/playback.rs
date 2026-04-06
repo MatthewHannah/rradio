@@ -87,13 +87,13 @@ pub fn playback_buffer(samples: Vec<f32>, fs: u32) {
 
 #[derive(Clone)]
 struct PlayableOsc {
-    osc: crate::osc::Osc,
+    osc: rradio_dsp::osc::Osc,
 }
 
 impl PlayableOsc {
     fn new(freq: f32, sample_rate: f32) -> Self {
         PlayableOsc {
-            osc: crate::osc::Osc::new(freq, sample_rate),
+            osc: rradio_dsp::osc::Osc::new(freq, sample_rate),
         }
     }
 

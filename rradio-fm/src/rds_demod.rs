@@ -1,8 +1,8 @@
 use num_complex::Complex32;
 
-use crate::fir;
-use crate::osc::{Mixable, MixableIter};
-use crate::resample::{RationalResampleable, RationalResampleIter};
+use rradio_dsp::fir;
+use rradio_dsp::osc::{Mixable, MixableIter};
+use rradio_dsp::resample::{RationalResampleable, RationalResampleIter};
 
 // ── Constants ──
 const R_CHIP: f32 = 2375.0;

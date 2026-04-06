@@ -1,0 +1,16 @@
+[package]
+name = "rradio-fm"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rradio-dsp = { path = "../rradio-dsp" }
+rradio-sdr = { path = "../rradio-sdr" }
+cpal = "0.16.0"
+ctrlc = "3.5.0"
+hound = "3"
+num-complex = "0.4.6"
+num-integer = "0.1.46"
+num-traits = "0.2.19"
+plotly = { version = "0.13.5", features = ["kaleido", "kaleido_download"] }
+rustfft = "=6.4.1"

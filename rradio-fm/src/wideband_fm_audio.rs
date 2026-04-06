@@ -1,7 +1,7 @@
-use crate::biquad::Biquad;
-use crate::deemphasis::Deemphasis;
-use crate::filterable::Filter;
-use crate::pll::RealPll;
+use rradio_dsp::biquad::Biquad;
+use rradio_dsp::deemphasis::Deemphasis;
+use rradio_dsp::filterable::Filter;
+use rradio_dsp::pll::RealPll;
 use num_complex::Complex32;
 
 pub struct WidebandFmAudio<I> {
