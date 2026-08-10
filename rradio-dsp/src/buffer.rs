@@ -1,12 +1,12 @@
 use std::{
+    fmt::Debug,
     ops::{Deref, DerefMut},
     sync::mpsc,
-    fmt::Debug
 };
 
 enum QueueItem<T> {
     Item(T),
-    Done
+    Done,
 }
 
 #[derive(Debug)]
@@ -45,7 +45,9 @@ where
     fn drop(&mut self) {
         if !self.released {
             // ignore errors if we need to here
-            let _ = self.ret.send(QueueItem::Item(std::mem::take(&mut self.data)));
+            let _ = self
+                .ret
+                .send(QueueItem::Item(std::mem::take(&mut self.data)));
         }
         self.released = true;
     }
@@ -84,7 +86,7 @@ where
                     QueueItem::Done => {
                         self.done = true;
                         None
-                    },
+                    }
                 }
             } else {
                 None
@@ -93,7 +95,9 @@ where
     }
 
     pub fn commit(&mut self, mut token: BufToken<T>) {
-        let _ = self.buf_out.send(QueueItem::Item(std::mem::take(&mut token.data)));
+        let _ = self
+            .buf_out
+            .send(QueueItem::Item(std::mem::take(&mut token.data)));
         token.released = true;
     }
 
@@ -112,14 +116,17 @@ where
                 Ok(QueueItem::Done) => {
                     self.done = true;
                     None
-                },
+                }
                 Err(_) => None,
             }
         }
     }
 }
 
-impl<T> Drop for SendBuf<T> where T: Default {
+impl<T> Drop for SendBuf<T>
+where
+    T: Default,
+{
     fn drop(&mut self) {
         let _ = self.buf_out.send(QueueItem::Done);
     }
@@ -146,17 +153,22 @@ where
                 ret: self.buf_out.clone(),
             }),
             Ok(QueueItem::Done) => None,
-            Err(_) => None
+            Err(_) => None,
         }
     }
 
     pub fn release(&mut self, mut token: BufToken<T>) {
-        let _ = self.buf_out.send(QueueItem::Item(std::mem::take(&mut token.data)));
+        let _ = self
+            .buf_out
+            .send(QueueItem::Item(std::mem::take(&mut token.data)));
         token.released = true;
     }
 }
 
-impl<T> Drop for RecvBuf<T> where T: Default {
+impl<T> Drop for RecvBuf<T>
+where
+    T: Default,
+{
     fn drop(&mut self) {
         let _ = self.buf_out.send(QueueItem::Done);
     }
@@ -189,15 +201,25 @@ where
 }
 
 #[derive(Debug)]
-pub struct RecvBufIter<T> where T: Copy {
+pub struct RecvBufIter<T>
+where
+    T: Copy,
+{
     rx: RecvBuf<Vec<T>>,
     curr: Option<BufToken<Vec<T>>>,
     idx: usize,
 }
 
-impl<T> RecvBufIter<T> where T: Copy {
+impl<T> RecvBufIter<T>
+where
+    T: Copy,
+{
     pub fn new(buf: RecvBuf<Vec<T>>) -> RecvBufIter<T> {
-        RecvBufIter { rx: buf, curr: None, idx: 0 }
+        RecvBufIter {
+            rx: buf,
+            curr: None,
+            idx: 0,
+        }
     }
 
     fn maybe_load_next(&mut self) -> Option<()> {
@@ -221,11 +243,21 @@ impl<T> RecvBufIter<T> where T: Copy {
     }
 }
 
-impl<T> Iterator for RecvBufIter<T> where T: Copy + Debug {
+impl<T> Iterator for RecvBufIter<T>
+where
+    T: Copy + Debug,
+{
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.curr.is_none() || self.idx >= self.curr.as_ref().expect("should be some, checked is none").len() {
+        if self.curr.is_none()
+            || self.idx
+                >= self
+                    .curr
+                    .as_ref()
+                    .expect("should be some, checked is none")
+                    .len()
+        {
             self.maybe_load_next()?;
         }
 
@@ -234,7 +266,6 @@ impl<T> Iterator for RecvBufIter<T> where T: Copy + Debug {
         Some(self.curr.as_ref()?[idx])
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -577,7 +608,11 @@ mod tests {
         assert!(sent > 0, "should have sent at least some");
         assert_eq!(sent + dropped, 20);
         // Consumer receives what was sent
-        assert!(received <= sent, "received {} but only sent {}", received, sent);
+        assert!(
+            received <= sent,
+            "received {} but only sent {}",
+            received,
+            sent
+        );
     }
-
 }

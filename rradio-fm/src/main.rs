@@ -1,33 +1,45 @@
-mod playback;
-mod wideband_fm_audio;
-mod rds_decoder;
 mod chip_sync;
+mod constellation_tap;
+#[cfg(feature = "gui")]
+mod gui;
+mod playback;
+mod rds_decoder;
 mod rds_demod;
+mod spectrum_tap;
+mod telemetry;
+mod wideband_fm_audio;
 
 use std::sync::atomic;
 use std::sync::Arc;
 
 use num_complex::Complex;
+use num_complex::Complex32;
 use num_integer::Integer;
 use plotly::Histogram;
 use plotly::ImageFormat;
 use plotly::{HeatMap, Plot, Scatter};
-use num_complex::Complex32;
 use rustfft::{num_traits::Zero, FftPlanner};
 
 use rradio_dsp::filterable::Filter;
 use rradio_dsp::filterable::FilterableIter;
 use rradio_dsp::fm_demod::FmDemodulatable;
 use rradio_dsp::interleaver::InterleaveableIter;
+use rradio_dsp::osc::Mixable;
 use rradio_dsp::resample::{Downsampleable, RationalResampleable};
 use rradio_dsp::spy::SpyableIter;
-use rradio_dsp::osc::Mixable;
 
+use crate::constellation_tap::ConstellationTappable;
 use crate::rds_demod::RdsDemodulatable;
+use crate::spectrum_tap::SpectrumTappable;
+use crate::telemetry::{RdsDisplayPublisher, SignalDisplayPublishers};
 use crate::wideband_fm_audio::WidebandFmAudioIterable;
 
 #[allow(dead_code)]
-fn spectrogram<T>(window_size: usize, overlap: usize, fs: f32, samples: &[T]) where Complex32: From<T>, T: Copy {
+fn spectrogram<T>(window_size: usize, overlap: usize, fs: f32, samples: &[T])
+where
+    Complex32: From<T>,
+    T: Copy,
+{
     let mut ffts: Vec<Vec<f32>> = vec![];
     let mut start: usize = 0;
     let mut stop: usize = start + window_size;
@@ -38,11 +50,15 @@ fn spectrogram<T>(window_size: usize, overlap: usize, fs: f32, samples: &[T]) wh
     let mut holder = vec![Complex32::zero(); window_size];
 
     while stop < samples.len() {
-        let mut working: Vec<Complex32> = samples[start..stop].iter().cloned().map(|x| Complex32::from(x)).collect();
+        let mut working: Vec<Complex32> = samples[start..stop]
+            .iter()
+            .cloned()
+            .map(|x| Complex32::from(x))
+            .collect();
         fft.process(&mut working);
 
-        holder[window_size/2..].copy_from_slice(&working[..window_size/2]);
-        holder[..window_size/2].copy_from_slice(&working[window_size/2..]);
+        holder[window_size / 2..].copy_from_slice(&working[..window_size / 2]);
+        holder[..window_size / 2].copy_from_slice(&working[window_size / 2..]);
         ffts.push(holder.iter().map(|s| s.norm().log10() * 20.0).collect());
 
         start = start + incr;
@@ -50,17 +66,23 @@ fn spectrogram<T>(window_size: usize, overlap: usize, fs: f32, samples: &[T]) wh
     }
 
     if stop != samples.len() {
-        let mut remainder: Vec<Complex32> = samples[start..].iter().cloned().map(|x| Complex32::from(x)).collect();
+        let mut remainder: Vec<Complex32> = samples[start..]
+            .iter()
+            .cloned()
+            .map(|x| Complex32::from(x))
+            .collect();
         remainder.resize(window_size, Complex32::zero());
         fft.process(&mut remainder);
 
-        holder[window_size/2..].copy_from_slice(&remainder[..window_size/2]);
-        holder[..window_size/2].copy_from_slice(&remainder[window_size/2..]);
+        holder[window_size / 2..].copy_from_slice(&remainder[..window_size / 2]);
+        holder[..window_size / 2].copy_from_slice(&remainder[window_size / 2..]);
         ffts.push(holder.iter().map(|s| s.norm().log10() * 20.0).collect());
     }
     println!("FFT done!");
 
-    let x: Vec<f32> = (0..window_size).map(|i| i as f32 * fs / window_size as f32 - fs / 2.0).collect();
+    let x: Vec<f32> = (0..window_size)
+        .map(|i| i as f32 * fs / window_size as f32 - fs / 2.0)
+        .collect();
     let y: Vec<f32> = (0..ffts.len()).map(|i| i as f32).collect();
 
     let mut plot = Plot::new();
@@ -80,10 +102,12 @@ fn save_psd_png(samples: &[Complex32], fs: f32, title: &str, path: &str) {
     fft.process(&mut working);
 
     let mut holder = vec![Complex32::zero(); n];
-    holder[n/2..].copy_from_slice(&working[..n/2]);
-    holder[..n/2].copy_from_slice(&working[n/2..]);
+    holder[n / 2..].copy_from_slice(&working[..n / 2]);
+    holder[..n / 2].copy_from_slice(&working[n / 2..]);
     let magnitudes: Vec<f32> = holder.iter().map(|s| s.norm().log10() * 20.0).collect();
-    let freqs: Vec<f32> = (0..n).map(|i| i as f32 * fs / n as f32 - fs / 2.0).collect();
+    let freqs: Vec<f32> = (0..n)
+        .map(|i| i as f32 * fs / n as f32 - fs / 2.0)
+        .collect();
 
     let mut plot = Plot::new();
     let trace = Scatter::new(freqs, magnitudes);
@@ -109,11 +133,16 @@ fn plot_freq_resp(samples: &[Complex32], fs: f32) {
     let mut working: Vec<Complex32> = samples.iter().cloned().collect();
     fft.process(&mut working);
     let holder_len = holder.len();
-    holder[holder_len/2..].copy_from_slice(&working[..holder_len/2]);
-    holder[..holder_len/2].copy_from_slice(&working[holder_len/2..]);
-    let magnitudes = holder.iter().map(|s| s.norm().log10() * 20.0).collect::<Vec<_>>();
+    holder[holder_len / 2..].copy_from_slice(&working[..holder_len / 2]);
+    holder[..holder_len / 2].copy_from_slice(&working[holder_len / 2..]);
+    let magnitudes = holder
+        .iter()
+        .map(|s| s.norm().log10() * 20.0)
+        .collect::<Vec<_>>();
 
-    let freqs: Vec<f32> = (0..samples.len()).map(|i| i as f32 * fs / samples.len() as f32 - fs / 2.0).collect();
+    let freqs: Vec<f32> = (0..samples.len())
+        .map(|i| i as f32 * fs / samples.len() as f32 - fs / 2.0)
+        .collect();
 
     let mut plot = Plot::new();
     let trace = Scatter::new(freqs, magnitudes);
@@ -138,13 +167,18 @@ fn plot_re_im(samples: &[Complex32]) {
 fn plot_re(samples: &[f32], title: &str) {
     let sample_count: Vec<usize> = (0..samples.len()).collect();
     let mut plot = Plot::new();
-    let rtrace: Box<Scatter<usize, f32>> = Scatter::new(sample_count.clone(), samples.to_vec()).into();
+    let rtrace: Box<Scatter<usize, f32>> =
+        Scatter::new(sample_count.clone(), samples.to_vec()).into();
     plot.add_trace(rtrace);
     plot.set_layout(plotly::Layout::new().title(title));
     plot.show();
 }
 
-fn buffer_pluto(done: &atomic::AtomicBool, config: &rradio_sdr::pluto::SdrConfig, mut out: rradio_dsp::buffer::SendBuf<Vec<Complex32>>) {
+fn buffer_pluto(
+    done: &atomic::AtomicBool,
+    config: &rradio_sdr::pluto::SdrConfig,
+    mut out: rradio_dsp::buffer::SendBuf<Vec<Complex32>>,
+) {
     const MAX_RETRIES: u32 = 3;
 
     while !done.load(atomic::Ordering::SeqCst) {
@@ -182,10 +216,16 @@ fn buffer_pluto(done: &atomic::AtomicBool, config: &rradio_sdr::pluto::SdrConfig
                     Err(e) => {
                         consecutive_errors += 1;
                         if consecutive_errors >= MAX_RETRIES {
-                            eprintln!("SDR error: {:?} ({} consecutive failures), reconnecting...", e, consecutive_errors);
+                            eprintln!(
+                                "SDR error: {:?} ({} consecutive failures), reconnecting...",
+                                e, consecutive_errors
+                            );
                             break;
                         }
-                        eprintln!("SDR error: {:?} (attempt {}/{})", e, consecutive_errors, MAX_RETRIES);
+                        eprintln!(
+                            "SDR error: {:?} (attempt {}/{})",
+                            e, consecutive_errors, MAX_RETRIES
+                        );
                         std::thread::sleep(std::time::Duration::from_millis(100));
                     }
                 }
@@ -205,7 +245,11 @@ fn buffer_pluto(done: &atomic::AtomicBool, config: &rradio_sdr::pluto::SdrConfig
     }
 }
 
-fn buffer_soapy(done: &atomic::AtomicBool, config: &rradio_sdr::soapy::SoapyConfig, mut out: rradio_dsp::buffer::SendBuf<Vec<Complex32>>) {
+fn buffer_soapy(
+    done: &atomic::AtomicBool,
+    config: &rradio_sdr::soapy::SoapyConfig,
+    mut out: rradio_dsp::buffer::SendBuf<Vec<Complex32>>,
+) {
     const MAX_RETRIES: u32 = 3;
 
     while !done.load(atomic::Ordering::SeqCst) {
@@ -241,10 +285,16 @@ fn buffer_soapy(done: &atomic::AtomicBool, config: &rradio_sdr::soapy::SoapyConf
                     Err(e) => {
                         consecutive_errors += 1;
                         if consecutive_errors >= MAX_RETRIES {
-                            eprintln!("SoapySDR error: {} ({} consecutive failures), reconnecting...", e, consecutive_errors);
+                            eprintln!(
+                                "SoapySDR error: {} ({} consecutive failures), reconnecting...",
+                                e, consecutive_errors
+                            );
                             break;
                         }
-                        eprintln!("SoapySDR error: {} (attempt {}/{})", e, consecutive_errors, MAX_RETRIES);
+                        eprintln!(
+                            "SoapySDR error: {} (attempt {}/{})",
+                            e, consecutive_errors, MAX_RETRIES
+                        );
                         std::thread::sleep(std::time::Duration::from_millis(100));
                     }
                 }
@@ -264,8 +314,14 @@ fn buffer_soapy(done: &atomic::AtomicBool, config: &rradio_sdr::soapy::SoapyConf
     }
 }
 
-fn buffer_sigmf(done: &atomic::AtomicBool, mut streamer: rradio_sdr::sigmf::SigmfStreamer, mut out: rradio_dsp::buffer::SendBuf<Vec<Complex32>>, tune_offset: f32, fs: f32) {
-    const CHUNK: usize = 4*1024*1024;
+fn buffer_sigmf(
+    done: &atomic::AtomicBool,
+    mut streamer: rradio_sdr::sigmf::SigmfStreamer,
+    mut out: rradio_dsp::buffer::SendBuf<Vec<Complex32>>,
+    tune_offset: f32,
+    fs: f32,
+) {
+    const CHUNK: usize = 4 * 1024 * 1024;
     while !done.load(atomic::Ordering::SeqCst) {
         if let Some(mut buf) = out.get() {
             buf.clear();
@@ -298,13 +354,18 @@ fn signal_pipeline(
     settings: SignalPipelineSettings,
     obs_settings: AudioPipelineObservationSettings,
     mpx_path: Option<String>,
+    display: Option<SignalDisplayPublishers>,
 ) {
     let samples = rradio_dsp::buffer::RecvBufIter::new(inbuf);
 
     let fs_spy = fs;
-    let samples = samples.maybe_spy(6000000, move |iq_samples| {
-        spectrogram(8192, 512, fs_spy, &iq_samples);
-    }, obs_settings.spy_iq);
+    let samples = samples.maybe_spy(
+        6000000,
+        move |iq_samples| {
+            spectrogram(8192, 512, fs_spy, &iq_samples);
+        },
+        obs_settings.spy_iq,
+    );
 
     // IQ filtering + downsample
     let iq_filter_stages = 2;
@@ -319,22 +380,54 @@ fn signal_pipeline(
     let resampled = filtered.downsample(settings.iq_downsample);
 
     let fs_spy = fs;
-    let resampled = resampled.maybe_spy(6000000, move |audio_samples| {
-        spectrogram(8192, 512, fs_spy, &audio_samples);
-    }, obs_settings.spy_iq);
+    let resampled = resampled.maybe_spy(
+        6000000,
+        move |audio_samples| {
+            spectrogram(8192, 512, fs_spy, &audio_samples);
+        },
+        obs_settings.spy_iq,
+    );
+
+    let (iq_spectrum_tx, mpx_spectrum_tx) = match display {
+        Some(display) => (Some(display.iq_spectrum), Some(display.mpx_spectrum)),
+        None => (None, None),
+    };
+
+    // Visualization taps are absent in normal CLI mode, so they add no DSP work.
+    let resampled: Box<dyn Iterator<Item = Complex32>> = match iq_spectrum_tx {
+        Some(writer) => Box::new(resampled.spectrum_tap(2048, fs, writer)),
+        None => Box::new(resampled),
+    };
 
     // FM demodulation + decimating FIR
     let fm_filt = rradio_dsp::biquad::Biquad::lowpass(fs, 80000.0, 0.707);
     let fm_decim_taps: Vec<f32> = rradio_dsp::fir::generate_lowpass_taps(
-        fs as f64, 80_000.0, 31, &rradio_dsp::fir::WindowType::Blackman,
+        fs as f64,
+        80_000.0,
+        31,
+        &rradio_dsp::fir::WindowType::Blackman,
     );
-    let demoded = resampled.dsp_filter(fm_filt).fm_demodulate().resample(fm_decim_taps, 1, settings.fm_demod_downsample);
+    let demoded = resampled.dsp_filter(fm_filt).fm_demodulate().resample(
+        fm_decim_taps,
+        1,
+        settings.fm_demod_downsample,
+    );
     let _fs = fs / (settings.fm_demod_downsample as f32);
 
     let fs_spy = _fs;
-    let demoded = demoded.maybe_spy(48000, move |audio_samples| {
-        spectrogram(1024, 512, fs_spy, &audio_samples);
-    }, obs_settings.spy_demoded);
+    let demoded = demoded.maybe_spy(
+        48000,
+        move |audio_samples| {
+            spectrogram(1024, 512, fs_spy, &audio_samples);
+        },
+        obs_settings.spy_demoded,
+    );
+
+    // Display tap: MPX spectrum (post-FM-demod, pre-stereo).
+    let demoded: Box<dyn Iterator<Item = f32>> = match mpx_spectrum_tx {
+        Some(writer) => Box::new(demoded.spectrum_tap(4096, _fs, writer)),
+        None => Box::new(demoded),
+    };
 
     // Optional MPX output: write FM-demodulated baseband to WAV
     let mut mpx_writer = mpx_path.map(|path| {
@@ -367,12 +460,18 @@ fn signal_pipeline(
         // Ensure we have output buffers
         if audio_batch.is_none() {
             audio_batch = match audio_out.get() {
-                Some(mut tok) => { tok.clear(); Some(tok) }
+                Some(mut tok) => {
+                    tok.clear();
+                    Some(tok)
+                }
                 None => break,
             };
         }
         if rds_batch.is_none() {
-            rds_batch = rds_out.get().map(|mut tok| { tok.clear(); tok });
+            rds_batch = rds_out.get().map(|mut tok| {
+                tok.clear();
+                tok
+            });
         }
 
         let sample = match wfm.next() {
@@ -397,10 +496,14 @@ fn signal_pipeline(
 
     // Flush remaining
     if let Some(buf) = audio_batch {
-        if !buf.is_empty() { audio_out.commit(buf); }
+        if !buf.is_empty() {
+            audio_out.commit(buf);
+        }
     }
     if let Some(buf) = rds_batch {
-        if !buf.is_empty() { rds_out.commit(buf); }
+        if !buf.is_empty() {
+            rds_out.commit(buf);
+        }
     }
 }
 
@@ -411,20 +514,32 @@ fn compute_pipeline_settings(fs: f32) -> SignalPipelineSettings {
     let total_downsample = fs / 48000.0;
     let total_downsample_int = total_downsample.round() as usize;
     if (total_downsample - total_downsample_int as f32).abs() > 0.5 {
-        panic!("Sample rate {} does not divide evenly to 48 kHz (ratio {})", fs, total_downsample);
+        panic!(
+            "Sample rate {} does not divide evenly to 48 kHz (ratio {})",
+            fs, total_downsample
+        );
     }
     // Total = iq_downsample × fm_demod_downsample × audio_downsample(5)
     // We need total / 5 for the signal pipeline portion (iq × fm_demod)
     if total_downsample_int % 5 != 0 {
-        panic!("Sample rate {} requires total downsample of {} which is not divisible by 5", fs, total_downsample_int);
+        panic!(
+            "Sample rate {} requires total downsample of {} which is not divisible by 5",
+            fs, total_downsample_int
+        );
     }
     let signal_downsample = total_downsample_int / 5; // iq × fm_demod
     if signal_downsample % 5 != 0 {
-        panic!("Signal downsample {} is not divisible by 5 for fm_demod stage", signal_downsample);
+        panic!(
+            "Signal downsample {} is not divisible by 5 for fm_demod stage",
+            signal_downsample
+        );
     }
     let iq_downsample = signal_downsample / 5;
     if iq_downsample == 0 {
-        panic!("Sample rate {} is too low for this pipeline (need at least 1.2 MHz)", fs);
+        panic!(
+            "Sample rate {} is too low for this pipeline (need at least 1.2 MHz)",
+            fs
+        );
     }
     SignalPipelineSettings {
         iq_downsample,
@@ -433,9 +548,16 @@ fn compute_pipeline_settings(fs: f32) -> SignalPipelineSettings {
 }
 
 enum IqSource {
-    Pluto { config: rradio_sdr::pluto::SdrConfig },
-    Soapy { config: rradio_sdr::soapy::SoapyConfig },
-    Sigmf { streamer: rradio_sdr::sigmf::SigmfStreamer, tune_offset: f32 },
+    Pluto {
+        config: rradio_sdr::pluto::SdrConfig,
+    },
+    Soapy {
+        config: rradio_sdr::soapy::SoapyConfig,
+    },
+    Sigmf {
+        streamer: rradio_sdr::sigmf::SigmfStreamer,
+        tune_offset: f32,
+    },
 }
 
 enum AudioOutput {
@@ -443,7 +565,10 @@ enum AudioOutput {
     Wav(String),
 }
 
-fn write_wav<I>(samples: I, path: &str, fs: u32) where I: Iterator<Item = f32> {
+fn write_wav<I>(samples: I, path: &str, fs: u32)
+where
+    I: Iterator<Item = f32>,
+{
     let spec = hound::WavSpec {
         channels: 2,
         sample_rate: fs,
@@ -455,11 +580,18 @@ fn write_wav<I>(samples: I, path: &str, fs: u32) where I: Iterator<Item = f32> {
 
     let mut count: u64 = 0;
     for sample in samples {
-        writer.write_sample(sample).expect("Failed to write WAV sample");
+        writer
+            .write_sample(sample)
+            .expect("Failed to write WAV sample");
         count += 1;
     }
     writer.finalize().expect("Failed to finalize WAV file");
-    eprintln!("Wrote {} samples ({:.1}s) to {}", count, count as f64 / (fs as f64 * 2.0), path);
+    eprintln!(
+        "Wrote {} samples ({:.1}s) to {}",
+        count,
+        count as f64 / (fs as f64 * 2.0),
+        path
+    );
 }
 
 fn get_ratio(old: f32, new: f32) -> (usize, usize) {
@@ -469,7 +601,14 @@ fn get_ratio(old: f32, new: f32) -> (usize, usize) {
     (up as usize, down as usize)
 }
 
-fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: rradio_dsp::buffer::RecvBuf<Vec<f32>>, wfm_fs: f32, debug: bool, metrics: bool) {
+fn rds_pipeline(
+    done: &atomic::AtomicBool,
+    rds_rx: rradio_dsp::buffer::RecvBuf<Vec<f32>>,
+    wfm_fs: f32,
+    debug: bool,
+    metrics: bool,
+    display_publishers: Option<RdsDisplayPublisher>,
+) {
     let iterable = rradio_dsp::buffer::RecvBufIter::new(rds_rx);
 
     // Stage 1: resample 240k → 171k (same as v4)
@@ -478,11 +617,27 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: rradio_dsp::buffer::RecvBuf<V
     let (stage1_up, stage1_down) = get_ratio(wfm_fs, stage1_target_fs);
     let up_fs = wfm_fs * (stage1_up as f32);
 
-    println!("v5 pipeline: resample {} → {} (up {} down {})", wfm_fs, stage1_target_fs, stage1_up, stage1_down);
+    println!(
+        "v5 pipeline: resample {} → {} (up {} down {})",
+        wfm_fs, stage1_target_fs, stage1_up, stage1_down
+    );
 
-    let mut chips = iterable
-        .resample(rradio_dsp::fir::generate_lowpass_taps(up_fs as f64, 80e3, 255, &rradio_dsp::fir::WindowType::Blackman), stage1_up, stage1_down)
+    let chips = iterable
+        .resample(
+            rradio_dsp::fir::generate_lowpass_taps(
+                up_fs as f64,
+                80e3,
+                255,
+                &rradio_dsp::fir::WindowType::Blackman,
+            ),
+            stage1_up,
+            stage1_down,
+        )
         .rds_demodulate();
+    let mut chips: Box<dyn Iterator<Item = Complex32>> = match display_publishers.as_ref() {
+        Some(display) => Box::new(chips.constellation_tap(256, display.constellation.clone())),
+        None => Box::new(chips),
+    };
 
     // Combined biphase + block sync (dual-phase searching, frozen polarity when locked)
     let mut chip_sync = chip_sync::ChipSync::new(2, 12, debug);
@@ -498,25 +653,66 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: rradio_dsp::buffer::RecvBuf<V
         if let Some(event) = chip_sync.push_chip(chip) {
             match event {
                 chip_sync::SyncEvent::Group(group) => {
+                    let bler = group.rolling_bler;
                     let state = decoder.process(&group);
                     let elapsed = start_time.elapsed().as_secs_f64();
                     if metrics {
-                        let pi_str = if group.pi_code != 0 { format!("{:04X}", group.pi_code) } else { "0000".to_string() };
-                        eprintln!("RDSMETRIC {{\"t\":{:.3},\"bler\":{:.4},\"groups\":{},\"pi\":\"{}\"}}", elapsed, group.rolling_bler, state.groups_decoded, pi_str);
+                        let pi_str = if group.pi_code != 0 {
+                            format!("{:04X}", group.pi_code)
+                        } else {
+                            "0000".to_string()
+                        };
+                        eprintln!(
+                            "RDSMETRIC {{\"t\":{:.3},\"bler\":{:.4},\"groups\":{},\"pi\":\"{}\"}}",
+                            elapsed, bler, state.groups_decoded, pi_str
+                        );
                     }
                     if debug {
                         let v = if group.version { "B" } else { "A" };
-                        eprintln!("RDS Group {}{}: PI=0x{:04X}  BLER={:.1}%", group.group_type, v, group.pi_code, group.rolling_bler * 100.0);
+                        eprintln!(
+                            "RDS Group {}{}: PI=0x{:04X}  BLER={:.1}%",
+                            group.group_type,
+                            v,
+                            group.pi_code,
+                            bler * 100.0
+                        );
                     } else if !metrics {
                         display.set_synced(true);
                         display.render(&state);
                     }
+                    if let Some(display) = &display_publishers {
+                        display.snapshot.publish(rds_decoder::RdsSnapshot {
+                            ps: state.ps.clone(),
+                            rt: state.rt.clone(),
+                            pi_code: state.pi_code,
+                            groups_decoded: state.groups_decoded,
+                            bler,
+                            synced: true,
+                        });
+                    }
                 }
                 chip_sync::SyncEvent::Locked => {
-                    if !metrics && !debug { display.set_synced(true); display.render(&decoder.display_state()); }
+                    if !metrics && !debug {
+                        display.set_synced(true);
+                        display.render(&decoder.display_state());
+                    }
                 }
                 chip_sync::SyncEvent::LostSync | chip_sync::SyncEvent::Searching => {
-                    if !metrics && !debug { display.set_synced(false); display.render(&decoder.display_state()); }
+                    if !metrics && !debug {
+                        display.set_synced(false);
+                        display.render(&decoder.display_state());
+                    }
+                    let state = decoder.display_state();
+                    if let Some(display) = &display_publishers {
+                        display.snapshot.publish(rds_decoder::RdsSnapshot {
+                            ps: state.ps.clone(),
+                            rt: state.rt.clone(),
+                            pi_code: state.pi_code,
+                            groups_decoded: state.groups_decoded,
+                            bler: 0.0,
+                            synced: false,
+                        });
+                    }
                 }
             }
         }
@@ -525,14 +721,26 @@ fn rds_pipeline(done: &atomic::AtomicBool, rds_rx: rradio_dsp::buffer::RecvBuf<V
     if metrics {
         let elapsed = start_time.elapsed().as_secs_f64();
         let state = decoder.display_state();
-        eprintln!("RDSSUMMARY {{\"groups\":{},\"duration\":{:.1},\"final_bler\":{:.4}}}",
-            state.groups_decoded, elapsed, 0.0);
+        eprintln!(
+            "RDSSUMMARY {{\"groups\":{},\"duration\":{:.1},\"final_bler\":{:.4}}}",
+            state.groups_decoded, elapsed, 0.0
+        );
     }
 }
 
 const AUDIO_DOWNSAMPLE: usize = 5;
 
-fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::AtomicBool>, obs_settings: AudioPipelineObservationSettings, rds_debug: bool, rds_metrics: bool, record_path: Option<String>, mpx_path: Option<String>) {
+fn run(
+    iq_source: IqSource,
+    audio_output: AudioOutput,
+    done_sig: Arc<atomic::AtomicBool>,
+    obs_settings: AudioPipelineObservationSettings,
+    rds_debug: bool,
+    rds_metrics: bool,
+    record_path: Option<String>,
+    mpx_path: Option<String>,
+    launch_gui: bool,
+) {
     let fs = match &iq_source {
         IqSource::Pluto { config } => config.fs,
         IqSource::Soapy { config } => config.fs,
@@ -546,16 +754,43 @@ fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::Ato
 
     let settings = compute_pipeline_settings(fs);
     let wfm_fs = fs / (settings.iq_downsample as f32) / (settings.fm_demod_downsample as f32);
-    eprintln!("Pipeline: fs={} Hz, iq_ds={}, fm_ds={}, wfm_fs={} Hz",
-        fs, settings.iq_downsample, settings.fm_demod_downsample, wfm_fs);
-    eprintln!("  Audio: wfm @ {} Hz → ÷{} → {} Hz stereo",
-        wfm_fs, AUDIO_DOWNSAMPLE, wfm_fs / AUDIO_DOWNSAMPLE as f32);
+    eprintln!(
+        "Pipeline: fs={} Hz, iq_ds={}, fm_ds={}, wfm_fs={} Hz",
+        fs, settings.iq_downsample, settings.fm_demod_downsample, wfm_fs
+    );
+    eprintln!(
+        "  Audio: wfm @ {} Hz → ÷{} → {} Hz stereo",
+        wfm_fs,
+        AUDIO_DOWNSAMPLE,
+        wfm_fs / AUDIO_DOWNSAMPLE as f32
+    );
     eprintln!("  RDS:   v5 pipeline (internal resample to 14250 Hz)");
 
     // Buffer pairs
     let (iq_tx, iq_rx) = rradio_dsp::buffer::buf_pair::<Vec<Complex32>>(8);
     let (audio_tx, audio_rx) = rradio_dsp::buffer::buf_pair::<Vec<(f32, f32)>>(8);
     let (rds_tx, rds_rx) = rradio_dsp::buffer::buf_pair::<Vec<f32>>(8);
+
+    // Build telemetry only when the GUI is actually running. This keeps normal
+    // playback/recording free of FFT, snapshot allocation, and synchronization work.
+    #[cfg(feature = "gui")]
+    let (display_channels, signal_display, rds_display) = if launch_gui {
+        let (publishers, channels) = telemetry::display_channels();
+        (
+            Some(channels),
+            Some(publishers.signal),
+            Some(publishers.rds),
+        )
+    } else {
+        (None, None, None)
+    };
+
+    #[cfg(not(feature = "gui"))]
+    let (_display_channels, signal_display, rds_display): (
+        Option<telemetry::DisplayChannels>,
+        Option<SignalDisplayPublishers>,
+        Option<RdsDisplayPublisher>,
+    ) = (None, None, None);
 
     // Optional IQ recording: splitter tees raw IQ to both signal pipeline and recorder
     let (pipeline_rx, record_thread) = if let Some(ref path) = record_path {
@@ -609,7 +844,9 @@ fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::Ato
             let iter = rradio_dsp::buffer::RecvBufIter::new(record_rx);
             let mut batch = Vec::with_capacity(8192);
             for sample in iter {
-                if done_ref.load(atomic::Ordering::SeqCst) { break; }
+                if done_ref.load(atomic::Ordering::SeqCst) {
+                    break;
+                }
                 batch.push(sample);
                 if batch.len() >= 8192 {
                     if let Err(e) = writer.write_samples(&batch) {
@@ -641,41 +878,83 @@ fn run(iq_source: IqSource, audio_output: AudioOutput, done_sig: Arc<atomic::Ato
 
     // Thread 1: IQ source
     let done_ref = done_sig.clone();
-    let iq_thread = std::thread::spawn(move || {
-        match iq_source {
-            IqSource::Pluto { config } => buffer_pluto(&done_ref, &config, iq_tx),
-            IqSource::Soapy { config } => buffer_soapy(&done_ref, &config, iq_tx),
-            IqSource::Sigmf { streamer, tune_offset } => buffer_sigmf(&done_ref, streamer, iq_tx, tune_offset, fs),
-        }
+    let iq_thread = std::thread::spawn(move || match iq_source {
+        IqSource::Pluto { config } => buffer_pluto(&done_ref, &config, iq_tx),
+        IqSource::Soapy { config } => buffer_soapy(&done_ref, &config, iq_tx),
+        IqSource::Sigmf {
+            streamer,
+            tune_offset,
+        } => buffer_sigmf(&done_ref, streamer, iq_tx, tune_offset, fs),
     });
 
     // Thread 2: Signal pipeline (FM demod + stereo/RDS extraction → tee)
     let done_ref = done_sig.clone();
     let signal_thread = std::thread::spawn(move || {
-        signal_pipeline(&done_ref, fs, pipeline_rx, audio_tx, rds_tx, settings, obs_settings, mpx_path);
+        signal_pipeline(
+            &done_ref,
+            fs,
+            pipeline_rx,
+            audio_tx,
+            rds_tx,
+            settings,
+            obs_settings,
+            mpx_path,
+            signal_display,
+        );
     });
 
     // Thread 3: RDS consumer
     let done_ref = done_sig.clone();
     let rds_thread = std::thread::spawn(move || {
-        rds_pipeline(&done_ref, rds_rx, wfm_fs, rds_debug, rds_metrics);
+        rds_pipeline(
+            &done_ref,
+            rds_rx,
+            wfm_fs,
+            rds_debug,
+            rds_metrics,
+            rds_display,
+        );
     });
 
-    // Main thread: Audio consumer (downsample + interleave + output)
-    let audio_iter = rradio_dsp::buffer::RecvBufIter::new(audio_rx)
-        .downsample(AUDIO_DOWNSAMPLE)
-        .interleave();
+    // Thread 4: Audio consumer (downsample + interleave + output)
+    let done_ref = done_sig.clone();
+    let audio_thread = std::thread::spawn(move || {
+        let audio_iter = rradio_dsp::buffer::RecvBufIter::new(audio_rx)
+            .downsample(AUDIO_DOWNSAMPLE)
+            .interleave();
 
-    match audio_output {
-        AudioOutput::Playback => {
-            playback::playback_iter(audio_iter, 48000);
+        match audio_output {
+            AudioOutput::Playback => {
+                playback::playback_iter(audio_iter, 48000);
+            }
+            AudioOutput::Wav(path) => {
+                write_wav(audio_iter, &path, 48000);
+            }
         }
-        AudioOutput::Wav(path) => {
-            write_wav(audio_iter, &path, 48000);
+        done_ref.store(true, atomic::Ordering::SeqCst);
+    });
+
+    // Main thread: run GUI or wait for pipeline threads
+    #[cfg(feature = "gui")]
+    {
+        if launch_gui {
+            let channels = display_channels.expect("GUI channels must exist when --gui is enabled");
+            if let Err(e) = gui::run_gui(channels, done_sig.clone()) {
+                eprintln!("GUI error: {}", e);
+            }
+            done_sig.store(true, atomic::Ordering::SeqCst);
         }
     }
-    done_sig.store(true, atomic::Ordering::SeqCst);
 
+    #[cfg(not(feature = "gui"))]
+    {
+        if launch_gui {
+            eprintln!("GUI requested but rradio-fm was compiled without the 'gui' feature.");
+            eprintln!("Rebuild with: cargo build --features gui");
+        }
+    }
+
+    audio_thread.join().unwrap();
     iq_thread.join().unwrap();
     signal_thread.join().unwrap();
     rds_thread.join().unwrap();
@@ -692,7 +971,8 @@ fn main() {
     let done_ref = done_sig.clone();
     ctrlc::set_handler(move || {
         done_ref.store(true, atomic::Ordering::SeqCst);
-    }).expect("Error setting CTRL-C handler");
+    })
+    .expect("Error setting CTRL-C handler");
 
     let obs_settings = AudioPipelineObservationSettings {
         spy_iq: false,
@@ -708,6 +988,7 @@ fn main() {
     let mut record_path: Option<String> = None;
     let mut mpx_path: Option<String> = None;
     let mut duration_secs: Option<f64> = None;
+    let mut launch_gui = false;
     let mut i = 0;
     while i < args.len() {
         if args[i] == "--wav" {
@@ -726,9 +1007,16 @@ fn main() {
             mpx_path = Some(args.get(i + 1).expect("Usage: --mpx <path.wav>").clone());
             i += 2;
         } else if args[i] == "--duration" {
-            duration_secs = Some(args.get(i + 1).expect("Usage: --duration <seconds>")
-                .parse().expect("--duration must be a number"));
+            duration_secs = Some(
+                args.get(i + 1)
+                    .expect("Usage: --duration <seconds>")
+                    .parse()
+                    .expect("--duration must be a number"),
+            );
             i += 2;
+        } else if args[i] == "--gui" {
+            launch_gui = true;
+            i += 1;
         } else {
             positional.push(args[i].clone());
             i += 1;
@@ -753,47 +1041,85 @@ fn main() {
     let mut pos = positional.iter().map(|s| s.as_str());
     match pos.next() {
         Some("sigmf") => {
-            let path = pos.next().expect("Usage: rradio sigmf <path> [tune_offset_khz]");
-            let tune_offset: f32 = pos.next()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(0.0)
-                * 1e3;
-            let streamer = rradio_sdr::sigmf::SigmfStreamer::new(path).expect("Failed to open SigMF file");
-            let source = IqSource::Sigmf { streamer, tune_offset };
-            run(source, audio_output, done_sig, obs_settings, rds_debug, rds_metrics, record_path, mpx_path.clone());
+            let path = pos
+                .next()
+                .expect("Usage: rradio sigmf <path> [tune_offset_khz]");
+            let tune_offset: f32 = pos.next().and_then(|s| s.parse().ok()).unwrap_or(0.0) * 1e3;
+            let streamer =
+                rradio_sdr::sigmf::SigmfStreamer::new(path).expect("Failed to open SigMF file");
+            let source = IqSource::Sigmf {
+                streamer,
+                tune_offset,
+            };
+            run(
+                source,
+                audio_output,
+                done_sig,
+                obs_settings,
+                rds_debug,
+                rds_metrics,
+                record_path,
+                mpx_path.clone(),
+                launch_gui,
+            );
         }
         Some("soapy") => {
-            let filter = pos.next().expect("Usage: rradio soapy <filter> [station_mhz]");
-            let station: f32 = pos.next()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(96.1)
-                * 1e6;
+            let filter = pos
+                .next()
+                .expect("Usage: rradio soapy <filter> [station_mhz]");
+            let station: f32 = pos.next().and_then(|s| s.parse().ok()).unwrap_or(96.1) * 1e6;
             let config = rradio_sdr::soapy::SoapyConfig {
                 filter: filter.to_string(),
                 station,
                 bw: 200e6,
                 fs: 2.4e6,
             };
-            run(IqSource::Soapy { config }, audio_output, done_sig, obs_settings, rds_debug, rds_metrics, record_path, mpx_path.clone());
+            run(
+                IqSource::Soapy { config },
+                audio_output,
+                done_sig,
+                obs_settings,
+                rds_debug,
+                rds_metrics,
+                record_path,
+                mpx_path.clone(),
+                launch_gui,
+            );
         }
         Some("pluto") => {
-            let station: f32 = pos.next()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(96.1)
-                * 1e6;
+            let station: f32 = pos.next().and_then(|s| s.parse().ok()).unwrap_or(96.1) * 1e6;
             let config = rradio_sdr::pluto::SdrConfig {
                 uri: "ip:pluto.local".to_string(),
                 station,
                 bw: 200e6,
                 fs: 2.4e6,
             };
-            run(IqSource::Pluto { config }, audio_output, done_sig, obs_settings, rds_debug, rds_metrics, record_path, mpx_path.clone());
+            run(
+                IqSource::Pluto { config },
+                audio_output,
+                done_sig,
+                obs_settings,
+                rds_debug,
+                rds_metrics,
+                record_path,
+                mpx_path.clone(),
+                launch_gui,
+            );
         }
         _ => {
             eprintln!("Usage: rradio <source> [options] [--wav <output.wav>]");
             eprintln!("  rradio pluto [station_mhz]");
             eprintln!("  rradio soapy <filter> [station_mhz]");
             eprintln!("  rradio sigmf <path.sigmf-meta> [tune_offset_khz]");
+            eprintln!();
+            eprintln!("Options:");
+            eprintln!("  --gui                 Launch GUI visualizer (requires 'gui' feature)");
+            eprintln!("  --wav <path>          Write audio to WAV file");
+            eprintln!("  --mpx <path.wav>      Write MPX baseband to WAV");
+            eprintln!("  --record <path>       Record raw IQ to SigMF");
+            eprintln!("  --duration <seconds>  Run for a fixed duration");
+            eprintln!("  --rds-debug           Enable RDS debug output");
+            eprintln!("  --rds-metrics         Enable RDS metrics output");
             std::process::exit(1);
         }
     }

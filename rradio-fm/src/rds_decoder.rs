@@ -13,6 +13,17 @@ pub struct RdsDisplayState {
     pub groups_decoded: u64,
 }
 
+/// Snapshot of decoded RDS data for GUI display.
+#[derive(Clone, Default)]
+pub struct RdsSnapshot {
+    pub ps: String,
+    pub rt: String,
+    pub pi_code: u16,
+    pub groups_decoded: u64,
+    pub bler: f64,
+    pub synced: bool,
+}
+
 /// Accumulates RDS data across groups.
 pub struct RdsDecoder {
     ps: [u8; 8],

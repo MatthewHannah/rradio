@@ -3,6 +3,9 @@ name = "rradio-fm"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+gui = ["eframe", "egui_plot"]
+
 [dependencies]
 rradio-dsp = { path = "../rradio-dsp" }
 rradio-sdr = { path = "../rradio-sdr" }
@@ -14,3 +17,5 @@ num-integer = "0.1.46"
 num-traits = "0.2.19"
 plotly = { version = "0.13.5", features = ["kaleido", "kaleido_download"] }
 rustfft = "=6.4.1"
+eframe = { version = "0.34", optional = true }
+egui_plot = { version = "0.35", optional = true }
